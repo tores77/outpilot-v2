@@ -1,6 +1,6 @@
 # OUTPILOT v2 — Spec v2.1-INTERNA
 
-**Documento:** UL-2026-OUTPILOT-V2-SPEC-R1
+**Documento:** UL-2026-OUTPILOT-V2-SPEC-R2
 **Fecha:** 22 de julio de 2026 (revisa y sustituye a UL-2026-OUTPILOT-V2-SPEC del 6 de junio)
 **Estado:** CERRADO — ejecución inmediata
 **Alcance:** Herramienta INTERNA de Umania Labs. Un solo objetivo: generar flujo de leads cualificados de webs premium (studio.umanialabs.com) y entregarlos a María en el CRM Twenty para cierre R1→R2.
@@ -65,7 +65,7 @@ Los dos orígenes de leads (outbound de OUTPILOT + inbound del SEO de studio) co
 
 | Decisión | Elección | Cambio vs spec junio |
 |---|---|---|
-| Framework | Next.js 15 App Router + API Routes | igual |
+| Framework | Next.js 16 App Router + API Routes | **R2: Next 16 (proyecto greenfield; los breaking changes 15→16 no aplican al no migrar nada)** |
 | Hosting app | Vercel | igual |
 | BD | Supabase EU proyecto nuevo `outpilot-v2` | igual |
 | Acceso datos | supabase-js v2 + tipos generados | igual |

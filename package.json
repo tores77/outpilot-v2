@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "env:check": "node --env-file-if-exists=.env.local scripts/check-env.mjs"
   },
   "dependencies": {
     "next": "16.2.11",
