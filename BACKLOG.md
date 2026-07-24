@@ -21,3 +21,22 @@ Orden de activación (menor riesgo → mayor valor):
 
 El cierre de cita ya es automático vía link Calendly + webhook (T030), así que
 en ese camino no hay trabajo de modo ACT pendiente.
+
+---
+
+## Deps y hardening
+
+### Vigilancia patch Next 16 (postcss + sharp)
+
+`npm audit` en Fase 0 reporta 3 vulnerabilidades high, todas transitivas de
+Next 16 (`postcss <=8.5.11` con XSS y file read; `sharp <0.35.0` con vulns de
+libvips). `npm audit fix --force` regresa a `next@9` — inaceptable.
+
+Plan A (activo): esperar la siguiente patch release de Next 16 (`npm update next`).
+Riesgo real en OUTPILOT: mínimo (no procesamos CSS ni imágenes de terceros).
+
+Plan B (si en 2–3 semanas no hay patch): `overrides` en `package.json` forzando
+`postcss@latest` y `sharp@^0.35.0`, con test manual de `next/image` — sharp tiene
+ABI específico y forzar la versión puede romper la optimización de imágenes.
+
+Revisar durante Fase 0/1 el changelog de Next 16 antes de decidir bump manual.

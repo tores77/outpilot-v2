@@ -7,8 +7,9 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/lib/inngest";
 import { healthcheck } from "@/jobs/healthcheck";
+import { devProbeClaude } from "@/jobs/dev-probe-claude";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [healthcheck],
+  functions: [healthcheck, devProbeClaude],
 });
