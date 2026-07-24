@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "env:check": "node --env-file-if-exists=.env.local scripts/check-env.mjs"
+    "env:check": "node --env-file-if-exists=.env.local scripts/check-env.mjs",
+    "gen-types": "node --env-file-if-exists=.env.local scripts/gen-types.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
