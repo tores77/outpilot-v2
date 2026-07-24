@@ -40,3 +40,12 @@ Plan B (si en 2–3 semanas no hay patch): `overrides` en `package.json` forzand
 ABI específico y forzar la versión puede romper la optimización de imágenes.
 
 Revisar durante Fase 0/1 el changelog de Next 16 antes de decidir bump manual.
+
+### Verificar pricing Anthropic antes de T036/producción
+
+`config/models.ts` tiene precios hardcoded (haiku 1/5, sonnet 3/15 USD por
+1M tokens). Verificar contra https://www.anthropic.com/pricing antes de la
+migración v1→v2 (T036) y del primer tráfico real. Si cambian los precios
+o aparecen nuevos SKUs, editar `MODEL_PRICES` (más `ClaudeModel` unión si
+hace falta) y regenerar cálculos si algún reporte histórico depende del
+valor exacto.
