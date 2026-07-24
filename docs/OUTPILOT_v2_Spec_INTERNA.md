@@ -73,7 +73,7 @@ Los dos orígenes de leads (outbound de OUTPILOT + inbound del SEO de studio) co
 | IA | Anthropic SDK, routing por tarea (haiku volumen / sonnet calidad) en `config/models.ts` | igual |
 | Email | Lemlist API (mailboxes ya calentados) | igual |
 | **CRM** | **Twenty self-hosted en Railway (Docker: server + Postgres + Redis propios de Twenty)** | **NUEVO — sustituye a Atlas** |
-| **Auth** | **Supabase Auth Google OAuth + allowlist de emails (Pere, Eli, María). Sin signup público.** | **Simplificado** |
+| **Auth** | **Supabase Auth Google OAuth + allowlist de emails (Pere; ampliable con un INSERT si algún día operan OUTPILOT). Sin signup público.** | **Simplificado. R2: allowlist reducida a Pere (Eli y María operan Twenty, no OUTPILOT).** |
 | LinkedIn | — | **FUERA de v2.1** (interfaz preservada) |
 | Stripe / planes / quotas | — | **FUERA de v2.1** |
 
@@ -221,7 +221,7 @@ outpilot-v2/
 
 ### Fase 0 — Fundaciones (22 jul → 1 ago)
 - **T001** Proyecto Supabase EU `outpilot-v2` + credenciales a entorno
-- **T002** create-next-app (Next 15, TS, Tailwind) + repo `tores77/outpilot-v2`
+- **T002** create-next-app (Next 16, TS, Tailwind) + repo `tores77/outpilot-v2`
 - **T003** Migración 001 (tenants + allowed_users) + RLS + seed tenant `umania` y allowlist
 - **T004** Google OAuth + gate de allowlist (email fuera de lista → acceso denegado)
 - **T005** Clientes supabase (browser/server/service) + `supabase gen types` + script
