@@ -150,7 +150,7 @@ create table twenty_sync (
 );
 ```
 
-RLS: patrón único `tenant_id in (select tenant_id from allowed_users where email = auth.jwt()->>'email')` en todas las tablas de negocio. Aunque hay un solo tenant, RLS + allowlist es la puerta de seguridad del tool completo. Jobs con service_role filtran `tenant_id` explícito (lint rule igual que en junio).
+RLS: patrón único `tenant_id = public.current_user_tenant_id()` en todas las tablas de negocio (`id = ...` en la propia tabla `tenants`). `current_user_tenant_id()` es una función `security definer` con `search_path` fijado que resuelve el tenant del email del JWT contra `allowed_users` sin disparar RLS (evita la recursión que la subquery inline provocaba). Aunque hay un solo tenant, RLS + allowlist es la puerta de seguridad del tool completo. Jobs con service_role filtran `tenant_id` explícito (lint rule igual que en junio). **R2: el patrón inline original disparaba recursión al aplicarse a `allowed_users`; se refactorizó a la función helper en la migración `001a_rls_helper.sql`.**
 
 ---
 
