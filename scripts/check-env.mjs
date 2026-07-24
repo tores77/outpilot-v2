@@ -16,6 +16,9 @@ const REQUIRED = [
   "INNGEST_SIGNING_KEY",
 ];
 
+// Dev tooling only; not read at runtime. Warn but don't fail if missing.
+const OPTIONAL = ["SUPABASE_ACCESS_TOKEN"];
+
 const missing = REQUIRED.filter((key) => !process.env[key]);
 
 if (missing.length > 0) {
@@ -39,4 +42,15 @@ for (const key of REQUIRED) {
       ? "****"
       : `${value.slice(0, 4)}…${value.slice(-4)} (${value.length}ch)`;
   console.log(`  ${key.padEnd(32)} ${masked}`);
+}
+
+const missingOptional = OPTIONAL.filter((key) => !process.env[key]);
+if (missingOptional.length > 0) {
+  console.warn(
+    `\n[env:check] Optional dev tooling variables not set (not a failure):`,
+  );
+  for (const key of missingOptional) console.warn(`  - ${key}`);
+  console.warn(
+    "  These are only needed by dev scripts (e.g. npm run gen-types).",
+  );
 }
