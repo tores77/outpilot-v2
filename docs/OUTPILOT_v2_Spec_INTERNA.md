@@ -104,8 +104,20 @@ create table allowed_users (
 );
 
 -- ===== 002: leads (idéntica a spec junio) =====
--- enum lead_estado con los 12 estados, tabla leads con tenant_id,
--- icp_score, source ('vibe_prospecting'|'csv_import'|'manual'|'studio_inbound'),
+-- R2 (aclaración, no cambio): enum literal recuperado de la spec de junio —
+create type lead_estado as enum (
+  'NUEVO','EN_SECUENCIA','RESPONDIO','REUNION_AGENDADA',
+  'REUNION_REALIZADA','NO_SHOW','PROPUESTA_ENVIADA','NEGOCIACION',
+  'CLIENTE','PERDIDO','NURTURING','EN_RADAR'
+);
+-- Los 5 estados de cierre (REUNION_REALIZADA, NO_SHOW, PROPUESTA_ENVIADA,
+-- NEGOCIACION, CLIENTE) viven en Twenty en v2.1 (§5.5) y no se conducen
+-- desde OUTPILOT; se mantienen en el enum por compatibilidad con la
+-- migración v1→v2 (T036) y por optionalidad barata.
+-- El "emails genéricos → REVIEW" del pipeline de Nova NO es estado del enum
+-- de junio: se implementa como flag/columna aparte (decisión de T013).
+-- tabla leads con tenant_id, icp_score, source
+-- ('vibe_prospecting'|'csv_import'|'manual'|'studio_inbound'),
 -- custom_fields jsonb, unique(tenant_id,email), índices por estado y score.
 
 -- ===== 003: canales y touchpoints (idéntica a junio) =====

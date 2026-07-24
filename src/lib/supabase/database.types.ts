@@ -43,6 +43,165 @@ export type Database = {
           },
         ]
       }
+      api_costs: {
+        Row: {
+          cost_usd: number | null
+          created_at: string
+          id: string
+          latency_ms: number | null
+          model: string
+          task: string
+          tenant_id: string
+          tokens_in: number
+          tokens_out: number
+        }
+        Insert: {
+          cost_usd?: number | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model: string
+          task: string
+          tenant_id: string
+          tokens_in: number
+          tokens_out: number
+        }
+        Update: {
+          cost_usd?: number | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model?: string
+          task?: string
+          tenant_id?: string
+          tokens_in?: number
+          tokens_out?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_costs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      events: {
+        Row: {
+          actor: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          kind: string
+          payload: Json
+          tenant_id: string
+        }
+        Insert: {
+          actor?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          kind: string
+          payload?: Json
+          tenant_id: string
+        }
+        Update: {
+          actor?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          kind?: string
+          payload?: Json
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "events_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          city: string | null
+          company: string | null
+          country: string | null
+          created_at: string
+          custom_fields: Json
+          email: string
+          estado: Database["public"]["Enums"]["lead_estado"]
+          first_name: string | null
+          icp_score: number | null
+          id: string
+          last_name: string | null
+          linkedin_url: string | null
+          phone: string | null
+          sector: string | null
+          source: Database["public"]["Enums"]["lead_source"]
+          tenant_id: string
+          title: string | null
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          city?: string | null
+          company?: string | null
+          country?: string | null
+          created_at?: string
+          custom_fields?: Json
+          email: string
+          estado?: Database["public"]["Enums"]["lead_estado"]
+          first_name?: string | null
+          icp_score?: number | null
+          id?: string
+          last_name?: string | null
+          linkedin_url?: string | null
+          phone?: string | null
+          sector?: string | null
+          source: Database["public"]["Enums"]["lead_source"]
+          tenant_id: string
+          title?: string | null
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          city?: string | null
+          company?: string | null
+          country?: string | null
+          created_at?: string
+          custom_fields?: Json
+          email?: string
+          estado?: Database["public"]["Enums"]["lead_estado"]
+          first_name?: string | null
+          icp_score?: number | null
+          id?: string
+          last_name?: string | null
+          linkedin_url?: string | null
+          phone?: string | null
+          sector?: string | null
+          source?: Database["public"]["Enums"]["lead_source"]
+          tenant_id?: string
+          title?: string | null
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           created_at: string
@@ -67,6 +226,54 @@ export type Database = {
         }
         Relationships: []
       }
+      twenty_sync: {
+        Row: {
+          error: string | null
+          last_synced_at: string | null
+          lead_id: string
+          sync_status: string
+          tenant_id: string
+          twenty_company_id: string | null
+          twenty_opportunity_id: string | null
+          twenty_person_id: string | null
+        }
+        Insert: {
+          error?: string | null
+          last_synced_at?: string | null
+          lead_id: string
+          sync_status?: string
+          tenant_id: string
+          twenty_company_id?: string | null
+          twenty_opportunity_id?: string | null
+          twenty_person_id?: string | null
+        }
+        Update: {
+          error?: string | null
+          last_synced_at?: string | null
+          lead_id?: string
+          sync_status?: string
+          tenant_id?: string
+          twenty_company_id?: string | null
+          twenty_opportunity_id?: string | null
+          twenty_person_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "twenty_sync_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "twenty_sync_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -75,7 +282,24 @@ export type Database = {
       current_user_tenant_id: { Args: never; Returns: string }
     }
     Enums: {
-      [_ in never]: never
+      lead_estado:
+        | "NUEVO"
+        | "EN_SECUENCIA"
+        | "RESPONDIO"
+        | "REUNION_AGENDADA"
+        | "REUNION_REALIZADA"
+        | "NO_SHOW"
+        | "PROPUESTA_ENVIADA"
+        | "NEGOCIACION"
+        | "CLIENTE"
+        | "PERDIDO"
+        | "NURTURING"
+        | "EN_RADAR"
+      lead_source:
+        | "vibe_prospecting"
+        | "csv_import"
+        | "manual"
+        | "studio_inbound"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -202,6 +426,27 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      lead_estado: [
+        "NUEVO",
+        "EN_SECUENCIA",
+        "RESPONDIO",
+        "REUNION_AGENDADA",
+        "REUNION_REALIZADA",
+        "NO_SHOW",
+        "PROPUESTA_ENVIADA",
+        "NEGOCIACION",
+        "CLIENTE",
+        "PERDIDO",
+        "NURTURING",
+        "EN_RADAR",
+      ],
+      lead_source: [
+        "vibe_prospecting",
+        "csv_import",
+        "manual",
+        "studio_inbound",
+      ],
+    },
   },
 } as const
