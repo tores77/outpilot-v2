@@ -190,6 +190,14 @@ correspondencia aquí — el R2 sigue siendo el contrato válido.
 - **Segunda pasada de aprendizaje del prompt de scoring**: con 3-5
   batches reales sobre leads de Vibe, revisar los sub_scores para
   ajustar los pesos que Haiku implícitamente aplica al score global.
+- **Fixtures de Echo antes de T027** (heredado del traspaso de Fase 0
+  y sigue vivo). Exportar antes de que arranque Fase 3:
+  - replies de Lemlist de la campaña "Industrial Premium ES",
+  - conversaciones WhatsApp de Restaurantes 97,
+  ambas anonimizadas, como few-shots del clasificador de Echo. Tarea
+  manual de Pere, fecha límite ~finales de agosto. Si hay <10 ejemplos
+  reales, completar con sintéticos marcados como tales (spec §8). Vive
+  en `docs/echo-fixtures/` cuando toque crearlo.
 
 ### En BACKLOG.md (revisar antes de Fase 4)
 
