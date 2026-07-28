@@ -1,18 +1,19 @@
 "use server";
 
-// Two-step Vibe bulk fetch: estimate → confirm → execute.
+// Estimate -> confirm -> execute for the Vibe bulk fetch.
 //
-//   1. estimateFetchAction reads the UI filters, calls Vibe stats (free),
-//      signs an HMAC token binding (filters + email + timestamp), and
-//      redirects to /radar/vibe?token=... with all params so step 2
-//      renders the confirmation view.
+//   estimateFetchAction reads the UI filters, calls Vibe stats (free) with
+//   the FULL server-side filter set (country + job_level + company_size +
+//   linkedin_category), signs an HMAC token binding filters+email+ts,
+//   and redirects to /radar/vibe?token=... so the page renders the
+//   confirmation view.
 //
-//   2. executeFetchAction verifies the token against the incoming params
-//      and (only if valid + not expired) enqueues an Inngest event that
-//      the nova-vibe-fetch job picks up.
+//   executeFetchAction verifies the token against the incoming params
+//   and, only if valid + not expired, enqueues the Inngest event that
+//   the nova-vibe-fetch job picks up.
 //
-// Neither action inserts leads directly — that's the job's responsibility
-// so the RLS-bypass service client stays under /jobs/**.
+// Neither action touches the DB directly — writes happen in the job so
+// the RLS-bypass service client stays under /jobs/**.
 
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,12 +23,15 @@ import { signEstimate, verifyEstimate } from "@/lib/vibe/token";
 import {
   VIBE_AVAILABLE_COUNTRIES,
   VIBE_AVAILABLE_SECTORS,
-  VIBE_CREDITS_PER_LEAD_ESTIMATE,
+  VIBE_COMPANY_SIZE_VALUES,
   VIBE_DEFAULT_LIMIT,
   VIBE_DEFAULT_SENIORITY,
   VIBE_MAX_CREDITS_PER_FETCH,
   VIBE_MAX_LEADS_PER_FETCH,
   VIBE_SENIORITY_OPTIONS,
+  estimateCredits,
+  jobLevelsFor,
+  linkedinCategoriesFor,
 } from "@/config/vibe";
 import type { VibeUiFilters } from "@/lib/vibe/types";
 
@@ -62,7 +66,26 @@ function readFilters(formData: FormData): VibeUiFilters {
   return { countries, sectors, seniority, limit };
 }
 
-function buildParams(filters: VibeUiFilters): URLSearchParams {
+function buildStatsFilters(filters: VibeUiFilters) {
+  const linkedinCategories = linkedinCategoriesFor(filters.sectors);
+  const jobLevels = jobLevelsFor(filters.seniority);
+  const payload: {
+    country_code: { values: string[] };
+    job_level?: { values: string[] };
+    company_size?: { values: string[] };
+    linkedin_category?: { values: string[] };
+  } = {
+    country_code: { values: filters.countries },
+    job_level: { values: jobLevels },
+    company_size: { values: [...VIBE_COMPANY_SIZE_VALUES] },
+  };
+  if (linkedinCategories.length > 0) {
+    payload.linkedin_category = { values: linkedinCategories };
+  }
+  return payload;
+}
+
+function buildUrlParams(filters: VibeUiFilters): URLSearchParams {
   const params = new URLSearchParams();
   for (const c of filters.countries) params.append("countries", c);
   for (const s of filters.sectors) params.append("sectors", s);
@@ -91,14 +114,15 @@ export async function estimateFetchAction(formData: FormData): Promise<void> {
   if (filters.countries.length === 0) {
     redirect("/radar/vibe?error=no_countries");
   }
+  if (filters.sectors.length === 0) {
+    redirect("/radar/vibe?error=no_sectors");
+  }
 
   const { email } = await requireUser();
 
   let matches: number;
   try {
-    const response = await stats({
-      filters: { country_code: { values: filters.countries } },
-    });
+    const response = await stats({ filters: buildStatsFilters(filters) });
     matches = response.total_results;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -107,7 +131,7 @@ export async function estimateFetchAction(formData: FormData): Promise<void> {
   }
 
   const { token } = signEstimate(filters, email);
-  const params = buildParams(filters);
+  const params = buildUrlParams(filters);
   params.set("matches", String(matches));
   params.set("token", token);
   redirect(`/radar/vibe?${params.toString()}`);
@@ -128,9 +152,9 @@ export async function executeFetchAction(formData: FormData): Promise<void> {
     redirect(`/radar/vibe?error=${reason}`);
   }
 
-  const estimatedCredits = filters.limit * VIBE_CREDITS_PER_LEAD_ESTIMATE;
+  const cost = estimateCredits(filters.limit);
   const acknowledged = formData.get("acknowledge_cap") === "on";
-  if (estimatedCredits > VIBE_MAX_CREDITS_PER_FETCH && !acknowledged) {
+  if (cost.total > VIBE_MAX_CREDITS_PER_FETCH && !acknowledged) {
     redirect("/radar/vibe?error=cap_ack_required");
   }
 
@@ -140,7 +164,7 @@ export async function executeFetchAction(formData: FormData): Promise<void> {
       tenantId,
       requestedBy: email,
       filters,
-      estimatedCredits,
+      estimatedCredits: cost,
     },
   });
 

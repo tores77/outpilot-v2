@@ -146,7 +146,15 @@ export async function importCsvAction(formData: FormData): Promise<void> {
 
   const cleanup = cleanupLeadBatch(drafts);
 
-  const rows: LeadInsert[] = cleanup.clean.map((clean) => ({
+  // Every survivor came from the CSV path where we already required a
+  // non-empty email; the type narrow is just a belt-and-braces guard for
+  // the compiler now that LeadDraft.email is nullable (Vibe pre-enrich).
+  const rows: LeadInsert[] = cleanup.clean
+    .filter(
+      (clean): clean is typeof clean & { email: string } =>
+        typeof clean.email === "string" && clean.email.length > 0,
+    )
+    .map((clean) => ({
     tenant_id: tenantId,
     email: clean.email,
     first_name: clean.first_name ?? null,

@@ -1,18 +1,24 @@
-// Contract probe for POST /v1/prospects (the fetch endpoint).
-// Runs with page_size=1 to minimise credit consumption (~1 credit).
+// Iterative contract probe for the Vibe/Explorium prospect API.
+// Two phases in a single run:
 //
-// Purpose: confirm the fetch response shape assumed in
-// src/lib/vibe/types.ts and src/lib/vibe/mapper.ts. If field names differ
-// (e.g. "prospects" vs "results", "name" vs "full_name"), we adjust the
-// mapper before the first real production execute.
+//   Phase 1 (FREE): discover the real filter taxonomy by calling
+//   /v1/prospects/stats with candidate field names. Stats calls are free
+//   and 422s from validation cost nothing. Each candidate is reported as
+//   "accepted", "unknown field" or "field exists but value invalid".
+//
+//   Phase 2 (~1 credit IF 200): a single POST /v1/prospects with
+//   mode:"full" + country ES + page_size:1. Any 4xx (including 422)
+//   costs nothing — only a 200 consumes a credit. Reports the array key,
+//   the first prospect's field names, and any rate-limit headers.
 //
 // Usage:
 //   npm run probe:vibe-fetch
 //
-// WARNING: this call consumes credits. Run once, not in CI, not on every
-// PR. The stats endpoint (probe:vibe) is the free counterpart.
+// After every 4xx we log the response body so Pydantic's own hint drives
+// the next iteration. Iterate the CANDIDATES / FETCH_BODY objects below
+// until phase 2 returns 200.
 
-const ENDPOINT = "https://api.explorium.ai/v1/prospects";
+const BASE_URL = "https://api.explorium.ai/v1";
 
 const key = process.env.VIBE_API_KEY;
 if (!key || key.trim() === "") {
@@ -22,45 +28,14 @@ if (!key || key.trim() === "") {
   process.exit(1);
 }
 
-const body = {
-  filters: {
-    country_code: { values: ["ES"] },
-  },
-  page: 1,
-  page_size: 1,
+const HEADERS = {
+  accept: "application/json",
+  "content-type": "application/json",
+  api_key: key,
 };
-
-console.log("[probe:vibe-fetch] WARNING: this call consumes ~1 credit.");
-console.log(`[probe:vibe-fetch] POST ${ENDPOINT}`);
-console.log(`[probe:vibe-fetch] body: ${JSON.stringify(body)}`);
-
-const startedAt = Date.now();
-let response;
-try {
-  response = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      api_key: key,
-    },
-    body: JSON.stringify(body),
-  });
-} catch (err) {
-  console.error(
-    `[probe:vibe-fetch] fetch threw: ${err instanceof Error ? err.message : String(err)}`,
-  );
-  process.exit(1);
-}
-
-const latencyMs = Date.now() - startedAt;
-console.log(
-  `[probe:vibe-fetch] status: ${response.status} ${response.statusText} (${latencyMs}ms)`,
-);
 
 const RELEVANT_HEADERS = [
   "content-type",
-  "content-length",
   "x-request-id",
   "retry-after",
   "x-ratelimit-limit",
@@ -70,44 +45,196 @@ const RELEVANT_HEADERS = [
   "ratelimit-remaining",
   "ratelimit-reset",
 ];
-console.log("[probe:vibe-fetch] headers of interest:");
-for (const name of RELEVANT_HEADERS) {
-  const value = response.headers.get(name);
-  if (value !== null) console.log(`    ${name}: ${value}`);
+
+function redact(text) {
+  return text.split(key).join("<VIBE_API_KEY_REDACTED>");
 }
 
-const rawText = await response.text();
-const redacted = rawText.split(key).join("<VIBE_API_KEY_REDACTED>");
-const preview =
-  redacted.length > 8192
-    ? `${redacted.slice(0, 8192)}\n… [truncated, ${redacted.length}B total]`
-    : redacted;
+async function call(path, body) {
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: HEADERS,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      text: `fetch threw: ${err instanceof Error ? err.message : String(err)}`,
+      latencyMs: Date.now() - startedAt,
+      headers: null,
+    };
+  }
+  const text = redact(await response.text());
+  return {
+    ok: response.ok,
+    status: response.status,
+    text,
+    latencyMs: Date.now() - startedAt,
+    headers: response.headers,
+  };
+}
 
-console.log("[probe:vibe-fetch] body:");
+function classifyValidationError(text, field) {
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("extra") ||
+    lower.includes("not permitted") ||
+    lower.includes("unknown") ||
+    lower.includes("no such filter")
+  ) {
+    return "unknown field";
+  }
+  if (
+    lower.includes("value is not a valid") ||
+    lower.includes("enumeration") ||
+    lower.includes("literal_error") ||
+    lower.includes(`"${field}"`)
+  ) {
+    return "field exists, value invalid";
+  }
+  return "other 4xx";
+}
+
+// ===== Phase 1 candidates =====
+// Dummy values are placeholders. The point is to learn the field name;
+// specific values can be probed in a follow-up run once the field is known.
+
+const CANDIDATES = {
+  seniority: {
+    values: ["director"],
+    fields: [
+      "job_level",
+      "seniority",
+      "level",
+      "job_seniority",
+      "role_level",
+      "management_level",
+    ],
+  },
+  companySize: {
+    values: ["10-50"],
+    fields: [
+      "company_size",
+      "employee_count",
+      "headcount",
+      "size",
+      "company_size_range",
+      "company_headcount",
+      "employees",
+    ],
+  },
+  industry: {
+    values: ["software"],
+    fields: [
+      "industry",
+      "company_industry",
+      "sector",
+      "company_sector",
+      "linkedin_industry",
+    ],
+  },
+};
+
+console.log("=== Phase 1: filter taxonomy discovery via /prospects/stats (free) ===\n");
+
+const acceptedByDimension = {};
+
+for (const [dim, spec] of Object.entries(CANDIDATES)) {
+  console.log(`-- dimension: ${dim} --`);
+  const accepted = [];
+  for (const field of spec.fields) {
+    const body = {
+      filters: {
+        country_code: { values: ["ES"] },
+        [field]: { values: spec.values },
+      },
+    };
+    const result = await call("/prospects/stats", body);
+    if (result.ok) {
+      console.log(`  ${field.padEnd(28)} 200 (${result.latencyMs}ms) ✓ accepted`);
+      accepted.push(field);
+      // Extract total_results from the response for insight
+      try {
+        const parsed = JSON.parse(result.text);
+        if (typeof parsed.total_results === "number") {
+          console.log(`      total_results with value=${JSON.stringify(spec.values)}: ${parsed.total_results}`);
+        }
+      } catch {}
+    } else {
+      const classification = classifyValidationError(result.text, field);
+      console.log(`  ${field.padEnd(28)} ${result.status} (${result.latencyMs}ms) ✗ ${classification}`);
+      // Short excerpt of the body for Pydantic hints
+      const excerpt = result.text.length > 300 ? `${result.text.slice(0, 300)}...` : result.text;
+      console.log(`      body: ${excerpt}`);
+    }
+    // small pause to be polite
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  acceptedByDimension[dim] = accepted;
+  console.log("");
+}
+
+console.log("--- Phase 1 summary ---");
+for (const [dim, accepted] of Object.entries(acceptedByDimension)) {
+  console.log(`  ${dim.padEnd(14)} accepted fields: ${accepted.length > 0 ? accepted.join(", ") : "(none)"}`);
+}
+console.log("");
+
+// ===== Phase 2: fetch with mode:"full" =====
+
+const FETCH_BODY = {
+  mode: "full",
+  filters: {
+    country_code: { values: ["ES"] },
+  },
+  page: 1,
+  page_size: 1,
+};
+
+console.log("=== Phase 2: /prospects fetch (mode:full, page_size:1) ===");
+console.log(`body: ${JSON.stringify(FETCH_BODY)}`);
+console.log("(4xx = free, 200 = 1 credit)\n");
+
+const fetchResult = await call("/prospects", FETCH_BODY);
+console.log(`status: ${fetchResult.status} (${fetchResult.latencyMs}ms)`);
+if (fetchResult.headers) {
+  const rate = [];
+  for (const name of RELEVANT_HEADERS) {
+    const value = fetchResult.headers.get(name);
+    if (value !== null) rate.push(`${name}: ${value}`);
+  }
+  if (rate.length > 0) {
+    console.log("headers of interest:");
+    for (const line of rate) console.log(`  ${line}`);
+  }
+}
+console.log("body:");
+const preview =
+  fetchResult.text.length > 8192
+    ? `${fetchResult.text.slice(0, 8192)}\n… [truncated, ${fetchResult.text.length}B total]`
+    : fetchResult.text;
 console.log(preview);
 
-if (!response.ok) {
-  console.error("[probe:vibe-fetch] non-2xx response; contract needs review.");
+if (!fetchResult.ok) {
+  console.error("\n[probe:vibe-fetch] fetch failed validation; iterate FETCH_BODY based on the Pydantic detail above.");
   process.exit(1);
 }
 
 try {
-  const parsed = JSON.parse(rawText);
-  console.log(
-    "[probe:vibe-fetch] top-level keys:",
-    Object.keys(parsed).join(", ") || "(none)",
-  );
-  for (const arrayKey of ["data", "results", "prospects"]) {
+  const parsed = JSON.parse(fetchResult.text);
+  console.log(`\ntop-level keys: ${Object.keys(parsed).join(", ")}`);
+  for (const arrayKey of ["data", "results", "prospects", "items"]) {
     const arr = parsed[arrayKey];
     if (Array.isArray(arr)) {
-      console.log(
-        `[probe:vibe-fetch] found prospect array at "${arrayKey}", length=${arr.length}`,
-      );
+      console.log(`prospect array key: "${arrayKey}" (length=${arr.length})`);
       if (arr.length > 0) {
-        console.log(
-          `[probe:vibe-fetch] first prospect keys:`,
-          Object.keys(arr[0]).join(", "),
-        );
+        console.log(`first prospect keys: ${Object.keys(arr[0]).join(", ")}`);
+        console.log(`first prospect (redacted if needed):`);
+        console.log(JSON.stringify(arr[0], null, 2));
       }
       break;
     }
@@ -116,4 +243,4 @@ try {
   console.warn("[probe:vibe-fetch] response is not valid JSON.");
 }
 
-console.log("[probe:vibe-fetch] OK — endpoint returned 2xx.");
+console.log("\n[probe:vibe-fetch] OK — phase 2 returned 200.");

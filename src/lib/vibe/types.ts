@@ -1,12 +1,5 @@
-// Types for the Vibe/Explorium REST API.
-// Fase 1 · T014.
-//
-// Stats shape is validated via scripts/probe-vibe.mjs (returns 200 with
-// { response_context, total_results, stats: { total_per_location } }).
-//
-// Fetch shape is ASSUMED — run `npm run probe:vibe-fetch` (costs ~1 credit)
-// to validate before the first production execute. If the API returns a
-// different shape, adjust src/lib/vibe/mapper.ts (single place).
+// Types for the Vibe/Explorium REST API — post-round-3 (all shapes verified
+// with real 200 responses; see scripts/probe-vibe-*.mjs for the history).
 
 export type VibeResponseContext = {
   correlation_id: string;
@@ -19,66 +12,97 @@ export type VibeResponseContext = {
 export type VibeStatsRequest = {
   filters: {
     country_code: { values: string[] };
+    job_level?: { values: string[] };
+    company_size?: { values: string[] };
+    linkedin_category?: { values: string[] };
   };
 };
 
 export type VibeStatsResponse = {
   response_context: VibeResponseContext;
   total_results: number;
-  stats: {
-    total_per_location: Record<string, number>;
+  stats?: {
+    total_per_location?: Record<string, number>;
   };
 };
 
-// ===== fetch (assumed shape) =====
+// ===== fetch =====
+//
+// Shape verified in round 1. The prospect object carries the fields we
+// pipe into LeadDraft (job_title, company_name, company_website, city,
+// country_name, linkedin, linkedin_url_array, job_level_main). The email
+// field lives in the enrich response, not here.
 
 export type VibeFetchRequest = {
+  mode: "full";
   filters: {
     country_code: { values: string[] };
+    job_level?: { values: string[] };
+    company_size?: { values: string[] };
+    linkedin_category?: { values: string[] };
   };
   page: number;
   page_size: number;
 };
 
-/**
- * Fields commonly returned by prospect-search REST APIs. The mapper tries
- * each of the expected keys in order and falls back to null.
- */
 export type VibeProspect = {
-  email?: string | null;
+  prospect_id: string;
   first_name?: string | null;
   last_name?: string | null;
   full_name?: string | null;
   job_title?: string | null;
-  title?: string | null;
+  job_level_main?: string | null;
   company_name?: string | null;
-  company?: string | null;
-  linkedin_url?: string | null;
+  company_website?: string | null;
   linkedin?: string | null;
-  phone?: string | null;
-  phone_number?: string | null;
-  country?: string | null;
+  linkedin_url_array?: string[] | null;
+  country_name?: string | null;
   country_code?: string | null;
   city?: string | null;
-  company_size?: string | null;
-  company_industry?: string | null;
-  industry?: string | null;
-  company_website?: string | null;
-  website?: string | null;
+  linkedin_category?: string | null;
   [key: string]: unknown;
 };
 
 export type VibeFetchResponse = {
   response_context?: VibeResponseContext;
   data?: VibeProspect[];
-  results?: VibeProspect[];
-  prospects?: VibeProspect[];
   total_results?: number;
-  pagination?: {
-    page?: number;
-    total_pages?: number;
-    total?: number;
-  };
+};
+
+// ===== bulk_enrich =====
+//
+// Shape verified in probe-vibe-enrich-first (200 in 941ms, 2 credits).
+// The response is an array; each item echoes the prospect_id and nests
+// the contact info under `data`.
+
+export type VibeBulkEnrichRequest = {
+  prospect_ids: string[];
+};
+
+export type VibeEnrichedEmail = {
+  address: string;
+  type?: string | null;
+};
+
+export type VibeEnrichedContact = {
+  emails?: VibeEnrichedEmail[] | null;
+  professions_email?: string | null;
+  professional_email_status?: string | null;
+  phone_numbers?: string[] | null;
+  mobile_phone?: string | null;
+  [key: string]: unknown;
+};
+
+export type VibeBulkEnrichItem = {
+  prospect_id: string;
+  data?: VibeEnrichedContact | null;
+};
+
+export type VibeBulkEnrichResponse = {
+  response_context?: VibeResponseContext;
+  data?: VibeBulkEnrichItem[];
+  total_results?: number;
+  entity_id?: string | null;
 };
 
 // ===== UI-level filters (form) =====

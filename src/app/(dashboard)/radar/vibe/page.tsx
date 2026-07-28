@@ -2,7 +2,8 @@ import Link from "next/link";
 import {
   VIBE_AVAILABLE_COUNTRIES,
   VIBE_AVAILABLE_SECTORS,
-  VIBE_CREDITS_PER_LEAD_ESTIMATE,
+  VIBE_CREDITS_PER_LEAD_ENRICH,
+  VIBE_CREDITS_PER_LEAD_FETCH,
   VIBE_DEFAULT_COUNTRIES,
   VIBE_DEFAULT_LIMIT,
   VIBE_DEFAULT_SECTORS,
@@ -10,6 +11,7 @@ import {
   VIBE_MAX_CREDITS_PER_FETCH,
   VIBE_MAX_LEADS_PER_FETCH,
   VIBE_SENIORITY_OPTIONS,
+  estimateCredits,
 } from "@/config/vibe";
 import { verifyEstimate } from "@/lib/vibe/token";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -18,6 +20,7 @@ import { estimateFetchAction, executeFetchAction } from "./actions";
 
 const ERROR_MESSAGES: Record<string, string> = {
   no_countries: "Selecciona al menos un país.",
+  no_sectors: "Selecciona al menos un sector.",
   stats: "El endpoint de estadísticas de Vibe falló.",
   missing_token: "Falta el token de estimación.",
   estimate_expired:
@@ -233,8 +236,8 @@ function ConfirmView({
   matches: number;
   token: string;
 }) {
-  const estimatedCredits = filters.limit * VIBE_CREDITS_PER_LEAD_ESTIMATE;
-  const overCap = estimatedCredits > VIBE_MAX_CREDITS_PER_FETCH;
+  const cost = estimateCredits(filters.limit);
+  const overCap = cost.total > VIBE_MAX_CREDITS_PER_FETCH;
 
   return (
     <div className="space-y-6">
@@ -244,22 +247,31 @@ function ConfirmView({
           {matches.toLocaleString("es-ES")} matches
         </p>
         <p className="mt-1 text-foreground/60">
-          Filtros: {filters.countries.join(", ")} · seniority {filters.seniority} · límite {filters.limit}
+          {filters.countries.join(", ")} · sectores {filters.sectors.join(", ") || "—"} · seniority {filters.seniority} · límite {filters.limit}
         </p>
-        <p className="mt-4 text-foreground/70">
-          Coste estimado: <strong>~{estimatedCredits} créditos</strong>{" "}
-          <span className="text-foreground/40">
-            (heurística {VIBE_CREDITS_PER_LEAD_ESTIMATE} crédito/lead; el real
-            se descuenta del saldo de Vibe)
-          </span>
-        </p>
+        <div className="mt-5 space-y-1 text-foreground/70">
+          <p className="text-xs uppercase tracking-wider text-muted">Desglose de coste</p>
+          <div className="grid max-w-md grid-cols-[1fr_auto] gap-x-6 text-sm">
+            <span>Fetch ({filters.limit} × {VIBE_CREDITS_PER_LEAD_FETCH} cr/lead)</span>
+            <span className="text-right tabular-nums">{cost.fetch} cr</span>
+            <span>Enrich ({filters.limit} × {VIBE_CREDITS_PER_LEAD_ENRICH} cr/lead)</span>
+            <span className="text-right tabular-nums">{cost.enrich} cr</span>
+            <span className="border-t border-hairline pt-1 font-medium text-foreground">Total estimado</span>
+            <span className="border-t border-hairline pt-1 text-right font-semibold tabular-nums text-foreground">{cost.total} cr</span>
+          </div>
+          <p className="pt-2 text-xs text-foreground/40">
+            El real se descuenta del saldo de Vibe. El enrich cubre solo los
+            supervivientes tras el cleanup (dedupe empresa/cargo), así que el
+            gasto real suele ser menor que la estimación.
+          </p>
+        </div>
       </div>
 
       {overCap && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
-          El coste estimado ({estimatedCredits} créditos) supera el cap por
-          defecto de {VIBE_MAX_CREDITS_PER_FETCH}. Marca la casilla para
-          confirmar explícitamente.
+          El coste estimado ({cost.total} créditos) supera el cap por defecto
+          de {VIBE_MAX_CREDITS_PER_FETCH}. Marca la casilla para confirmar
+          explícitamente.
         </div>
       )}
 

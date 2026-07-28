@@ -15,7 +15,11 @@
 // how the pipeline reshaped the batch.
 
 export type LeadDraft = {
-  email: string;
+  // Nullable so the Vibe pipeline can dedupe BEFORE paying for enrich.
+  // CSV import + manual insert require a valid email upstream; the
+  // upsert into `leads` still needs a non-null email because of the
+  // (tenant_id,email) unique constraint from migration 002.
+  email?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   company?: string | null;
@@ -34,7 +38,7 @@ export type CleanLead = LeadDraft & { needs_review: boolean };
 export type DroppedLead = {
   row: CleanLead;
   reason: "dedupe_lower_rank";
-  kept_email: string;
+  kept_email: string | null;
 };
 
 export type CleanupStats = {
@@ -177,10 +181,12 @@ export function titleRank(title: string | null | undefined): number {
 // ===== Pipeline =====
 
 export function cleanupLeadBatch(rows: LeadDraft[]): CleanupResult {
-  // Pass 1: annotate needs_review
+  // Pass 1: annotate needs_review. If the email is missing (Vibe pre-enrich
+  // flow) the check is deferred — the job re-runs isGenericEmail after
+  // merging the enriched email.
   const annotated: CleanLead[] = rows.map((r) => ({
     ...r,
-    needs_review: isGenericEmail(r.email),
+    needs_review: r.email ? isGenericEmail(r.email) : false,
   }));
 
   // Pass 2: group by normalised company, keep top-ranked title per group.
@@ -219,7 +225,7 @@ export function cleanupLeadBatch(rows: LeadDraft[]): CleanupResult {
       dropped.push({
         row: loser,
         reason: "dedupe_lower_rank",
-        kept_email: winner.email,
+        kept_email: winner.email ?? null,
       });
     }
   }

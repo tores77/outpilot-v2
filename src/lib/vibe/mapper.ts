@@ -1,34 +1,47 @@
-// Vibe prospect -> LeadDraft mapping.
-// Fase 1 · T014.
+// Vibe -> LeadDraft mapping. Two stages:
 //
-// Field names are ASSUMED from common REST conventions. Validate by running
-// `npm run probe:vibe-fetch` (costs ~1 credit). If the real API returns
-// different keys, edit this single file.
+//   1. mapProspectToLeadDraft(p): fetch response -> LeadDraft. Email is
+//      left NULL on purpose — the fetch endpoint returns
+//      professional_email_hashed only. The dedupe pass in cleanupLeadBatch
+//      runs on these email-less drafts and prunes the batch before we pay
+//      for enrich.
+//
+//   2. mergeEnrichedContact(draft, contact): fills email + phone + status
+//      + prospect_id echo into the surviving draft. Returns null when the
+//      contact is missing an email, the status is not "valid", or the
+//      contact block is null/empty — the caller counts those as
+//      enrich_no_email and drops them (a lead without a verified email
+//      cannot enter a Volt sequence).
+//
+// All field names are verified against real responses (see the four
+// probe:vibe-* scripts).
 
 import type { LeadDraft } from "@/lib/nova/cleanup";
-import type { VibeProspect } from "./types";
+import type {
+  VibeBulkEnrichItem,
+  VibeBulkEnrichResponse,
+  VibeEnrichedContact,
+  VibeFetchResponse,
+  VibeProspect,
+} from "./types";
 
-const KNOWN_KEYS = new Set([
-  "email",
+// ===== fetch mapping =====
+
+const PROSPECT_KNOWN_KEYS = new Set([
+  "prospect_id",
   "first_name",
   "last_name",
   "full_name",
   "job_title",
-  "title",
+  "job_level_main",
   "company_name",
-  "company",
-  "linkedin_url",
+  "company_website",
   "linkedin",
-  "phone",
-  "phone_number",
-  "country",
+  "linkedin_url_array",
+  "country_name",
   "country_code",
   "city",
-  "company_size",
-  "company_industry",
-  "industry",
-  "company_website",
-  "website",
+  "linkedin_category",
 ]);
 
 function pickString(...candidates: Array<string | null | undefined>): string | null {
@@ -38,70 +51,141 @@ function pickString(...candidates: Array<string | null | undefined>): string | n
   return null;
 }
 
-function splitFullName(
-  full: string | null,
-): { first: string | null; last: string | null } {
-  if (!full) return { first: null, last: null };
-  const parts = full.trim().split(/\s+/);
-  if (parts.length === 0) return { first: null, last: null };
-  if (parts.length === 1) return { first: parts[0], last: null };
-  return { first: parts[0], last: parts.slice(1).join(" ") };
+function pickLinkedin(p: VibeProspect): string | null {
+  const single = pickString(p.linkedin);
+  if (single) return single;
+  const arr = p.linkedin_url_array;
+  if (Array.isArray(arr) && arr.length > 0) {
+    for (const url of arr) {
+      if (typeof url === "string" && url.trim() !== "") return url.trim();
+    }
+  }
+  return null;
 }
 
 function extractCustomFields(p: VibeProspect): Record<string, string> {
   const custom: Record<string, string> = {};
   for (const [k, v] of Object.entries(p)) {
-    if (KNOWN_KEYS.has(k)) continue;
+    if (PROSPECT_KNOWN_KEYS.has(k)) continue;
     if (v === null || v === undefined) continue;
     custom[k] = typeof v === "string" ? v : JSON.stringify(v);
   }
   return custom;
 }
 
-/**
- * Returns null if no usable email can be extracted — such rows are counted
- * as invalid upstream and skipped.
- */
 export function mapProspectToLeadDraft(p: VibeProspect): LeadDraft | null {
-  const email = pickString(p.email);
-  if (!email) return null;
-
-  let first = pickString(p.first_name);
-  let last = pickString(p.last_name);
-  if (!first && !last) {
-    const split = splitFullName(pickString(p.full_name));
-    first = split.first;
-    last = split.last;
+  // prospect_id is the anchor for the enrich step and future re-enrich.
+  // Without it we can't correlate the enrich response, so we drop.
+  if (typeof p.prospect_id !== "string" || p.prospect_id.length === 0) {
+    return null;
   }
 
   const custom_fields = extractCustomFields(p);
+  // Persist the anchor id so a future re-enrich (BACKLOG idea) can find it.
+  custom_fields.prospect_id = p.prospect_id;
 
   return {
-    email,
-    first_name: first,
-    last_name: last,
-    company: pickString(p.company_name, p.company),
-    title: pickString(p.job_title, p.title),
-    phone: pickString(p.phone, p.phone_number),
-    linkedin_url: pickString(p.linkedin_url, p.linkedin),
-    website: pickString(p.company_website, p.website),
-    sector: pickString(p.company_industry, p.industry),
-    country: pickString(p.country, p.country_code),
+    // email left null on purpose — filled in by the enrich merge.
+    email: null,
+    first_name: pickString(p.first_name),
+    last_name: pickString(p.last_name),
+    company: pickString(p.company_name),
+    title: pickString(p.job_title),
+    linkedin_url: pickLinkedin(p),
+    website: pickString(p.company_website),
+    sector: pickString(p.linkedin_category),
+    country: pickString(p.country_name, p.country_code),
     city: pickString(p.city),
-    custom_fields: Object.keys(custom_fields).length > 0 ? custom_fields : undefined,
+    custom_fields,
   };
 }
 
-/**
- * Extracts the prospect array from a fetch response, tolerating three
- * common conventions (data / results / prospects).
- */
-export function extractProspects(payload: unknown): VibeProspect[] {
-  if (payload === null || typeof payload !== "object") return [];
-  const obj = payload as Record<string, unknown>;
-  for (const key of ["data", "results", "prospects"] as const) {
-    const arr = obj[key];
-    if (Array.isArray(arr)) return arr as VibeProspect[];
+export function extractFetchProspects(payload: VibeFetchResponse): VibeProspect[] {
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+// ===== enrich merge =====
+
+function extractEmailAndType(
+  contact: VibeEnrichedContact,
+): { email: string; type: string | null } | null {
+  const shortcut = typeof contact.professions_email === "string" && contact.professions_email.trim() !== ""
+    ? contact.professions_email.trim()
+    : null;
+  if (shortcut) {
+    const type = contact.emails?.find((e) => e.address === shortcut)?.type ?? null;
+    return { email: shortcut, type };
   }
-  return [];
+  if (Array.isArray(contact.emails) && contact.emails.length > 0) {
+    // Prefer current_professional if present, else the first non-empty.
+    const prof = contact.emails.find(
+      (e) => typeof e.address === "string" && e.address.trim() !== "" && e.type === "current_professional",
+    );
+    if (prof) return { email: prof.address.trim(), type: "current_professional" };
+    const first = contact.emails.find(
+      (e) => typeof e.address === "string" && e.address.trim() !== "",
+    );
+    if (first) return { email: first.address.trim(), type: first.type ?? null };
+  }
+  return null;
+}
+
+function extractPhone(contact: VibeEnrichedContact): string | null {
+  const mobile = typeof contact.mobile_phone === "string" ? contact.mobile_phone.trim() : "";
+  if (mobile) return mobile;
+  if (Array.isArray(contact.phone_numbers) && contact.phone_numbers.length > 0) {
+    for (const p of contact.phone_numbers) {
+      if (typeof p === "string" && p.trim() !== "") return p.trim();
+    }
+  }
+  return null;
+}
+
+export type EnrichOutcome =
+  | { ok: true; draft: LeadDraft }
+  | { ok: false; reason: "no_contact_block" | "no_email" | "invalid_status" };
+
+export function mergeEnrichedContact(
+  draft: LeadDraft,
+  item: VibeBulkEnrichItem,
+): EnrichOutcome {
+  const contact = item.data;
+  if (!contact) return { ok: false, reason: "no_contact_block" };
+
+  const emailInfo = extractEmailAndType(contact);
+  if (!emailInfo) return { ok: false, reason: "no_email" };
+
+  const status =
+    typeof contact.professional_email_status === "string"
+      ? contact.professional_email_status.trim().toLowerCase()
+      : null;
+  if (status !== null && status !== "valid") {
+    return { ok: false, reason: "invalid_status" };
+  }
+
+  const phone = extractPhone(contact);
+  const custom_fields: Record<string, string> = { ...(draft.custom_fields ?? {}) };
+  if (status) custom_fields.email_status = status;
+  if (emailInfo.type) custom_fields.email_type = emailInfo.type;
+
+  return {
+    ok: true,
+    draft: {
+      ...draft,
+      email: emailInfo.email,
+      phone: phone ?? draft.phone ?? null,
+      custom_fields,
+    },
+  };
+}
+
+export function indexEnrichResponseByProspectId(
+  payload: VibeBulkEnrichResponse,
+): Map<string, VibeBulkEnrichItem> {
+  const map = new Map<string, VibeBulkEnrichItem>();
+  if (!Array.isArray(payload.data)) return map;
+  for (const item of payload.data) {
+    if (typeof item.prospect_id === "string") map.set(item.prospect_id, item);
+  }
+  return map;
 }

@@ -1,24 +1,30 @@
 // HTTP client for the Vibe/Explorium REST API.
-// Fase 1 · T014.
+// Fase 1 · T014 (post-round-3, verified against 3 endpoints).
 //
-// - api_key header (not Bearer), verified via scripts/probe-vibe.mjs.
+// Endpoints:
+//   POST /prospects/stats                                (free)
+//   POST /prospects                                      (1 credit/lead, 60k pagination cap)
+//   POST /prospects/contacts_information/bulk_enrich     (2 credits/prospect_id, batch <=50)
+//
+// - api_key header (not Bearer).
 // - AbortController-based per-request timeout.
-// - Retries on 5xx and 429 with exponential backoff; 4xx (except 429) fail
-//   fast — those are contract issues, not transient.
-// - Never logs the API key. Response bodies are logged on error but the
-//   caller decides what to do; the redaction pass is the caller's job if
-//   they surface the body to the UI.
+// - Retries on 5xx and 429 with exponential backoff; other 4xx fail fast.
+// - Never logs the API key. Callers redact response bodies before
+//   surfacing them to the UI.
 
 import "server-only";
 
 import {
   VIBE_BASE_URL,
+  VIBE_BULK_ENRICH_ENDPOINT,
   VIBE_FETCH_ENDPOINT,
   VIBE_MAX_RETRIES,
   VIBE_STATS_ENDPOINT,
   VIBE_TIMEOUT_MS,
 } from "@/config/vibe";
 import type {
+  VibeBulkEnrichRequest,
+  VibeBulkEnrichResponse,
   VibeFetchRequest,
   VibeFetchResponse,
   VibeStatsRequest,
@@ -63,9 +69,7 @@ async function vibeRequest<Req, Res>(path: string, body: Req): Promise<Res> {
 
       const text = await response.text();
       const retryable = response.status >= 500 || response.status === 429;
-      if (!retryable) {
-        throw new VibeApiError(response.status, text);
-      }
+      if (!retryable) throw new VibeApiError(response.status, text);
       lastError = new VibeApiError(response.status, text);
     } catch (err) {
       clearTimeout(timeoutId);
@@ -76,7 +80,7 @@ async function vibeRequest<Req, Res>(path: string, body: Req): Promise<Res> {
     }
 
     if (attempt < VIBE_MAX_RETRIES) {
-      const delay = 500 * 2 ** attempt; // 500ms, 1s, 2s
+      const delay = 500 * 2 ** attempt;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -93,4 +97,10 @@ export function fetchProspectsPage(
   request: VibeFetchRequest,
 ): Promise<VibeFetchResponse> {
   return vibeRequest(VIBE_FETCH_ENDPOINT, request);
+}
+
+export function bulkEnrichContacts(
+  request: VibeBulkEnrichRequest,
+): Promise<VibeBulkEnrichResponse> {
+  return vibeRequest(VIBE_BULK_ENRICH_ENDPOINT, request);
 }
