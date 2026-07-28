@@ -1,26 +1,27 @@
 "use server";
 
-// Server Action for /radar/import. Parses a CSV of leads, inserts new
-// rows with source='csv_import' and estado defaulting to 'NUEVO'. This
-// is the *raw import*: T013 will add the cleanup pipeline (dedupe by
-// company/title hierarchy, generic-email REVIEW flag, accent
-// normalisation) either before this insert or as a post-processing pass.
+// Server Action for /radar/import. T012 did raw upsert; T013 wraps it with
+// the Nova cleanup pipeline:
+//   1. parse CSV
+//   2. map recognised columns + drop invalid emails
+//   3. cleanupLeadBatch: mark generic emails as needs_review + dedupe by
+//      normalised company keeping the highest-ranked title
+//   4. upsert survivors with source='csv_import' and needs_review set
 //
-// Duplicates by (tenant_id, email) are silently ignored (upsert with
-// ignoreDuplicates=true) so re-uploading a CSV is safe.
+// Duplicates by (tenant_id, email) already in the database are still
+// silently ignored (ignoreDuplicates=true), so re-uploading is safe.
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Papa from "papaparse";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cleanupLeadBatch, type LeadDraft } from "@/lib/nova/cleanup";
 import type { Database } from "@/lib/supabase/database.types";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 type LeadSource = Database["public"]["Enums"]["lead_source"];
 
-// Header aliases -> canonical column. Match is case-insensitive and ignores
-// spaces / underscores / hyphens.
-const HEADER_ALIASES: Record<string, keyof LeadInsert> = {
+const HEADER_ALIASES: Record<string, keyof LeadDraft> = {
   email: "email",
   "e-mail": "email",
   correo: "email",
@@ -62,7 +63,7 @@ const HEADER_ALIASES: Record<string, keyof LeadInsert> = {
   ciudad_provincia: "city",
 };
 
-const KNOWN_COLUMNS = new Set(Object.values(HEADER_ALIASES));
+const KNOWN_COLUMNS = new Set<keyof LeadDraft>(Object.values(HEADER_ALIASES));
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function normaliseHeader(raw: string): string {
@@ -106,17 +107,17 @@ export async function importCsvAction(formData: FormData): Promise<void> {
   const tenantId = allowed.tenant_id;
   const total = parsed.data.length;
   let invalid = 0;
-  const rows: LeadInsert[] = [];
+  const drafts: LeadDraft[] = [];
 
   for (const raw of parsed.data) {
-    const mapped: Record<string, unknown> = {};
+    const mapped: Partial<LeadDraft> = {};
     const custom: Record<string, string> = {};
 
     for (const [rawKey, value] of Object.entries(raw)) {
       if (typeof value !== "string" || value.trim() === "") continue;
       const canonical = HEADER_ALIASES[rawKey];
       if (canonical) {
-        mapped[canonical] = value.trim();
+        (mapped as Record<string, string>)[canonical] = value.trim();
       } else {
         custom[rawKey] = value.trim();
       }
@@ -128,23 +129,40 @@ export async function importCsvAction(formData: FormData): Promise<void> {
       continue;
     }
 
-    const row: LeadInsert = {
-      tenant_id: tenantId,
-      email,
-      source: "csv_import" satisfies LeadSource,
-    };
+    const draft: LeadDraft = { email };
     for (const key of KNOWN_COLUMNS) {
       if (key === "email") continue;
       if (key in mapped) {
-        // TS: mapped values are strings; the corresponding columns accept text|null.
-        (row as Record<string, unknown>)[key] = mapped[key];
+        (draft as Record<string, unknown>)[key] = (mapped as Record<string, unknown>)[
+          key
+        ];
       }
     }
     if (Object.keys(custom).length > 0) {
-      row.custom_fields = custom;
+      draft.custom_fields = custom;
     }
-    rows.push(row);
+    drafts.push(draft);
   }
+
+  const cleanup = cleanupLeadBatch(drafts);
+
+  const rows: LeadInsert[] = cleanup.clean.map((clean) => ({
+    tenant_id: tenantId,
+    email: clean.email,
+    first_name: clean.first_name ?? null,
+    last_name: clean.last_name ?? null,
+    company: clean.company ?? null,
+    title: clean.title ?? null,
+    phone: clean.phone ?? null,
+    linkedin_url: clean.linkedin_url ?? null,
+    website: clean.website ?? null,
+    sector: clean.sector ?? null,
+    country: clean.country ?? null,
+    city: clean.city ?? null,
+    source: "csv_import" satisfies LeadSource,
+    needs_review: clean.needs_review,
+    custom_fields: clean.custom_fields ?? {},
+  }));
 
   let inserted = 0;
   if (rows.length > 0) {
@@ -159,10 +177,16 @@ export async function importCsvAction(formData: FormData): Promise<void> {
     inserted = data?.length ?? 0;
   }
 
-  const duplicates = rows.length - inserted;
+  const duplicates_db = rows.length - inserted;
+  const params = new URLSearchParams({
+    imported: String(inserted),
+    duplicates: String(duplicates_db),
+    invalid: String(invalid),
+    deduped: String(cleanup.stats.dropped_dedupe),
+    review_count: String(cleanup.stats.marked_review),
+    total: String(total),
+  });
 
   revalidatePath("/radar");
-  redirect(
-    `/radar?imported=${inserted}&duplicates=${duplicates}&invalid=${invalid}&total=${total}`,
-  );
+  redirect(`/radar?${params.toString()}`);
 }

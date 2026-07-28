@@ -26,20 +26,30 @@ en ese camino no hay trabajo de modo ACT pendiente.
 
 ## Deps y hardening
 
-### Vigilancia patch Next 16 (postcss + sharp)
+### Vigilancia patch Next 16 + ESLint (postcss / sharp / brace-expansion)
 
-`npm audit` en Fase 0 reporta 3 vulnerabilidades high, todas transitivas de
-Next 16 (`postcss <=8.5.11` con XSS y file read; `sharp <0.35.0` con vulns de
-libvips). `npm audit fix --force` regresa a `next@9` — inaceptable.
+`npm audit` reporta 16 high tras T012, todas transitivas de dev deps y de Next:
 
-Plan A (activo): esperar la siguiente patch release de Next 16 (`npm update next`).
-Riesgo real en OUTPILOT: mínimo (no procesamos CSS ni imágenes de terceros).
+- `postcss <=8.5.17` — 3 CVEs (XSS via `</style>`, arbitrary file read via
+  attacker-controlled `sourceMappingURL`, path traversal en source map
+  auto-loading GHSA-r28c-9q8g-f849). Cascadea desde `next`.
+- `sharp <0.35.0` — libvips vulns (CVE-2026-33327/33328/35590/35591). Cascadea
+  desde `next`.
+- `brace-expansion` (GHSA-mh99-v99m-4gvg, publicado 2026-07) — DoS por
+  consumo de memoria en patterns adversariales. Cascadea a `minimatch`,
+  `@eslint/*`, `eslint-plugin-*`, `eslint-config-next`, `glob`, `rimraf` y
+  `gaxios`/`gcp-metadata` (deps de Supabase CLI).
 
-Plan B (si en 2–3 semanas no hay patch): `overrides` en `package.json` forzando
-`postcss@latest` y `sharp@^0.35.0`, con test manual de `next/image` — sharp tiene
-ABI específico y forzar la versión puede romper la optimización de imágenes.
+`npm audit fix --force` regresa a `next@9.3.3`, inaceptable. Riesgo real en
+OUTPILOT: bajo (no procesamos CSS ni imágenes ni patterns de fuente externa).
 
-Revisar durante Fase 0/1 el changelog de Next 16 antes de decidir bump manual.
+**Plan A (activo)**: `npm update next && npm update eslint eslint-config-next`
+cuando ambos publiquen patches. Ventana: hasta **2026-08-10** (cierre Fase 1).
+
+**Plan B** (a evaluar el 2026-08-10 si Plan A no basta): `overrides` en
+`package.json` forzando `postcss@latest`, `sharp@^0.35.0` y
+`brace-expansion@^2.0.2`, con test manual de `next/image` (sharp tiene ABI
+específico) y de `npm run lint` (por si eslint-config-next se rompe).
 
 ### Verificar pricing Anthropic antes de T036/producción
 
@@ -49,3 +59,21 @@ migración v1→v2 (T036) y del primer tráfico real. Si cambian los precios
 o aparecen nuevos SKUs, editar `MODEL_PRICES` (más `ClaudeModel` unión si
 hace falta) y regenerar cálculos si algún reporte histórico depende del
 valor exacto.
+
+---
+
+## Ideas (sin deadline)
+
+### Consolidación cross-import de leads por empresa
+
+El dedupe de Nova (T013) trabaja intra-batch: dentro del mismo CSV o lote
+de Vibe Prospecting, se queda con el cargo más senior por empresa y
+descarta el resto. Si en dos imports sucesivos entran leads de la misma
+empresa con distintos rangos, ambos quedan en BD — solo el
+`unique(tenant_id, email)` de 002 impide duplicados exactos por email.
+
+Cuándo activar: si en Fase 1/2 vemos leads redundantes de la misma empresa
+compitiendo por atención en Radar. Diseño posible: job Inngest opt-in que
+tras cada import corre `cleanupLeadBatch` sobre el estado persistido y
+marca los "perdedores" como `needs_review` con reasoning en
+`custom_fields`. No borrar filas — solo señalizar.

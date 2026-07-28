@@ -198,6 +198,7 @@ export type Database = {
           id: string
           last_name: string | null
           linkedin_url: string | null
+          needs_review: boolean
           phone: string | null
           sector: string | null
           source: Database["public"]["Enums"]["lead_source"]
@@ -219,6 +220,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           linkedin_url?: string | null
+          needs_review?: boolean
           phone?: string | null
           sector?: string | null
           source: Database["public"]["Enums"]["lead_source"]
@@ -240,6 +242,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           linkedin_url?: string | null
+          needs_review?: boolean
           phone?: string | null
           sector?: string | null
           source?: Database["public"]["Enums"]["lead_source"]

@@ -39,10 +39,13 @@ const PAGE_SIZE = 50;
 type RadarSearchParams = {
   estado?: string;
   min_score?: string;
+  review?: string;
   page?: string;
   imported?: string;
   duplicates?: string;
   invalid?: string;
+  deduped?: string;
+  review_count?: string;
   total?: string;
 };
 
@@ -66,6 +69,7 @@ function buildPageLink(sp: RadarSearchParams, nextPage: number): string {
   const params = new URLSearchParams();
   if (sp.estado) params.set("estado", sp.estado);
   if (sp.min_score) params.set("min_score", sp.min_score);
+  if (sp.review) params.set("review", sp.review);
   params.set("page", String(nextPage));
   return `/radar?${params.toString()}`;
 }
@@ -87,6 +91,7 @@ export default async function RadarPage({
   const sp = await searchParams;
   const estado = parseEstado(sp.estado);
   const minScore = parseMinScore(sp.min_score);
+  const reviewOnly = sp.review === "1";
   const page = parsePage(sp.page);
   const offset = (page - 1) * PAGE_SIZE;
 
@@ -95,13 +100,14 @@ export default async function RadarPage({
   let query = supabase
     .from("leads")
     .select(
-      "id, email, first_name, last_name, company, title, estado, icp_score, source, created_at",
+      "id, email, first_name, last_name, company, title, estado, icp_score, source, needs_review, created_at",
     )
     .order("created_at", { ascending: false })
     .range(offset, offset + PAGE_SIZE); // fetch PAGE_SIZE+1 to detect "hasMore"
 
   if (estado) query = query.eq("estado", estado);
   if (minScore !== null) query = query.gte("icp_score", minScore);
+  if (reviewOnly) query = query.eq("needs_review", true);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -116,6 +122,8 @@ export default async function RadarPage({
           imported: Number.parseInt(sp.imported, 10) || 0,
           duplicates: Number.parseInt(sp.duplicates ?? "0", 10) || 0,
           invalid: Number.parseInt(sp.invalid ?? "0", 10) || 0,
+          deduped: Number.parseInt(sp.deduped ?? "0", 10) || 0,
+          review: Number.parseInt(sp.review_count ?? "0", 10) || 0,
           total: Number.parseInt(sp.total ?? "0", 10) || 0,
         }
       : null;
@@ -126,8 +134,9 @@ export default async function RadarPage({
         <div>
           <h1 className="text-4xl font-semibold">Radar</h1>
           <p className="mt-2 text-sm text-foreground/60">
-            Leads recibidos por Vibe Prospecting, CSV o el formulario inbound de
-            studio. La limpieza y el scoring ICP llegan en T013–T015.
+            Leads recibidos por Vibe Prospecting, CSV o el formulario inbound
+            de studio. La limpieza (dedupe empresa/cargo, tildes, flag REVIEW)
+            corre en el import; el scoring ICP llega en T015.
           </p>
         </div>
         <Link
@@ -143,9 +152,17 @@ export default async function RadarPage({
           role="status"
           className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
         >
-          Importación completada: {importFlash.imported} añadidos,{" "}
-          {importFlash.duplicates} duplicados ignorados, {importFlash.invalid} filas
-          inválidas ({importFlash.total} totales).
+          Importación completada: <strong>{importFlash.imported}</strong>{" "}
+          añadidos, {importFlash.duplicates} duplicados en BD,{" "}
+          {importFlash.deduped} descartados por dedupe empresa/cargo,{" "}
+          {importFlash.review} marcados{" "}
+          <Link
+            href="/radar?review=1"
+            className="underline decoration-dotted underline-offset-2 hover:text-accent"
+          >
+            REVIEW
+          </Link>
+          , {importFlash.invalid} filas inválidas ({importFlash.total} totales).
         </div>
       )}
 
@@ -179,6 +196,17 @@ export default async function RadarPage({
           />
         </label>
 
+        <label className="flex items-center gap-2 pb-1.5 text-xs text-foreground/70">
+          <input
+            type="checkbox"
+            name="review"
+            value="1"
+            defaultChecked={reviewOnly}
+            className="h-4 w-4 rounded border-hairline bg-foreground/5 text-accent focus:ring-1 focus:ring-accent/40"
+          />
+          Solo REVIEW
+        </label>
+
         <div className="flex gap-2">
           <button
             type="submit"
@@ -186,7 +214,7 @@ export default async function RadarPage({
           >
             Aplicar
           </button>
-          {(estado || minScore !== null) && (
+          {(estado || minScore !== null || reviewOnly) && (
             <Link
               href="/radar"
               className="rounded-md border border-hairline px-4 py-1.5 text-sm text-foreground/70 transition-colors hover:border-accent/40 hover:text-foreground"
@@ -237,13 +265,23 @@ export default async function RadarPage({
                   </td>
                   <td className="px-4 py-3 text-foreground/80">{companyLine}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ${
-                        ESTADO_STYLES[lead.estado]
-                      }`}
-                    >
-                      {lead.estado}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      <span
+                        className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ${
+                          ESTADO_STYLES[lead.estado]
+                        }`}
+                      >
+                        {lead.estado}
+                      </span>
+                      {lead.needs_review && (
+                        <span
+                          title="Marcado por el pipeline de limpieza (email genérico u otra señal)."
+                          className="inline-block rounded bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-yellow-300"
+                        >
+                          REVIEW
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-foreground/80">
                     {lead.icp_score ?? <span className="text-foreground/40">—</span>}
