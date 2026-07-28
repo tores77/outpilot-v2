@@ -260,9 +260,9 @@ function ConfirmView({
             <span className="border-t border-hairline pt-1 text-right font-semibold tabular-nums text-foreground">{cost.total} cr</span>
           </div>
           <p className="pt-2 text-xs text-foreground/40">
-            El real se descuenta del saldo de Vibe. El enrich cubre solo los
-            supervivientes tras el cleanup (dedupe empresa/cargo), así que el
-            gasto real suele ser menor que la estimación.
+            Coste orientativo; el descuento real lo fija Vibe. El enrich cubre
+            solo los supervivientes tras el cleanup (dedupe empresa/cargo).
+            La heurística se irá calibrando con los primeros fetches reales.
           </p>
         </div>
       </div>

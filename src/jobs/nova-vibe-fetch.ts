@@ -56,6 +56,7 @@ import {
   VIBE_INTER_PAGE_DELAY_MS,
   VIBE_MAX_LEADS_PER_FETCH,
   VIBE_PAGE_SIZE,
+  estimateCredits,
   jobLevelsFor,
   linkedinCategoriesFor,
   maxRankFor,
@@ -357,6 +358,13 @@ export const novaVibeFetch = inngest.createFunction(
       if (error) console.error("[nova-vibe-fetch] events insert failed", error);
     });
 
+    // credits_estimated is what the UI showed on the ConfirmView (fixed at
+    // request time based on `limit`). credits_charged is what we actually
+    // billed against Vibe based on how many rows the API returned. The
+    // real deduction on the account may still differ — BACKLOG "calibrar
+    // heurística Vibe" tracks the ratio across runs.
+    const credits_estimated = estimateCredits(params.limit);
+
     return {
       fetched_from_api: fetchedFromApi,
       kept_after_cleanup: cleanup.clean.length,
@@ -367,9 +375,12 @@ export const novaVibeFetch = inngest.createFunction(
       enrich_invalid_status: enrichInvalidStatus,
       marked_review: markedReview,
       inserted,
-      cost_fetch_credits: fetchCreditsSpent,
-      cost_enrich_credits: enrichCreditsSpent,
-      cost_total_credits: fetchCreditsSpent + enrichCreditsSpent,
+      credits_estimated,
+      credits_charged: {
+        fetch: fetchCreditsSpent,
+        enrich: enrichCreditsSpent,
+        total: fetchCreditsSpent + enrichCreditsSpent,
+      },
       latency_ms: totalLatencyMs,
     };
   },

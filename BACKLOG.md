@@ -62,6 +62,22 @@ valor exacto.
 
 ---
 
+### Calibrar heurística de coste Vibe con 3-5 fetches reales
+
+Los probes aislados vieron 1 cr/fetch + 2 cr/enrich = 3 cr por lead.
+El primer end-to-end real deducó **6 cr por lead** (2x lo probado). La
+config actual pone la heurística a `VIBE_CREDITS_PER_LEAD_FETCH=2` y
+`VIBE_CREDITS_PER_LEAD_ENRICH=4` para no subestimar la estimación de la
+ConfirmView. Cada run del job escribe `credits_estimated` en el output;
+tras 3-5 fetches reales, comparar contra los descuentos observados en el
+panel de Vibe y ajustar los constantes.
+
+Signal para reevaluar: si el ratio `(descuento real) / (credits_charged
+del job)` estabiliza entorno a 1.0, la heurística está bien. Si oscila
+mucho (p. ej. según sector o tamaño), extraer un modelo por dimensión.
+
+---
+
 ## Ideas (sin deadline)
 
 ### Enrich individual de leads existentes vía Vibe/Explorium

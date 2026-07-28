@@ -1,11 +1,18 @@
 // Vibe Prospecting / Explorium — defaults, caps, endpoints and mappings.
 // Fase 1 · T014 (rewritten after 3 rounds of contract probing).
 //
-// Cost model (verified with 2 real paid probes):
-//   fetch (POST /prospects, mode:"full"):  1 credit / lead delivered
+// Cost model (calibrated after the first full end-to-end run):
+//   fetch (POST /prospects, mode:"full"):  billed 2 credits / lead
 //   enrich (POST /prospects/contacts_information/bulk_enrich):
-//                                          2 credits / prospect_id
-//   -> total per contactable lead: ~3 credits (fetch + enrich)
+//                                          billed 4 credits / prospect_id
+//   -> total per contactable lead: ~6 credits (fetch + enrich)
+//
+// Isolated probes reported 1 + 2 = 3, but the first real fetch+enrich
+// cycle deducted 6 credits from the account. We bias the UI estimate
+// toward the observed billing (2x the isolated probes) so the ConfirmView
+// never under-promises. `credits_estimated` is written into the run
+// output on every fetch so BACKLOG > "calibrar heurística Vibe" can
+// keep tightening the ratio with real data.
 //
 // Server-side filters (all validated via probe:vibe-round2 + round3):
 //   country_code       — ISO alpha-2, e.g. ["ES"]
@@ -36,9 +43,11 @@ export const VIBE_ENRICH_BATCH_SIZE = 50;
 export const VIBE_MAX_LEADS_PER_FETCH = 250;
 export const VIBE_DEFAULT_LIMIT = 100;
 
-// Verified per-lead credit cost (real, not heuristic).
-export const VIBE_CREDITS_PER_LEAD_FETCH = 1;
-export const VIBE_CREDITS_PER_LEAD_ENRICH = 2;
+// Per-lead credit cost, calibrated with a 2x margin over the isolated
+// probes (1+2=3) to match the observed billing of the first real run
+// (6 credits per lead). Recalibrate with 3-5 real fetches (BACKLOG).
+export const VIBE_CREDITS_PER_LEAD_FETCH = 2;
+export const VIBE_CREDITS_PER_LEAD_ENRICH = 4;
 export const VIBE_MAX_CREDITS_PER_FETCH = 500;
 
 // Paginable results cap reported by /prospects: total_results is 60_000
