@@ -36,17 +36,20 @@ export default async function LoginPage({
   const errorMessage = error ? ERROR_MESSAGES[error] : null;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-10">
-      <div className="max-w-sm text-center">
-        <h1 className="text-2xl font-semibold">OUTPILOT v2</h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          Herramienta interna de Umania Labs. Acceso restringido.
+    <main className="flex min-h-screen flex-col items-center justify-center gap-8 p-10">
+      <div className="max-w-sm space-y-2 text-center">
+        <h1 className="text-3xl font-semibold tracking-tight">OUTPILOT v2</h1>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-muted">
+          Umania Labs
+        </p>
+        <p className="pt-2 text-sm text-foreground/60">
+          Herramienta interna. Acceso restringido a la allowlist.
         </p>
       </div>
       <LoginButton />
       {errorMessage && (
         <p
-          className="max-w-sm text-center text-sm text-red-600"
+          className="max-w-sm text-center text-sm text-red-400"
           role="alert"
         >
           {errorMessage}
