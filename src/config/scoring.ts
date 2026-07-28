@@ -92,6 +92,26 @@ Tu evaluación general 0-100. No tiene por qué ser el promedio literal —
 puedes matizar. Un lead con seniority_fit=90 pero sector_fit=15 puede
 acabar en 30 global; explica el criterio en el reasoning.
 
+GATE DURO PARA SCORE ≥ 70 (anti-presunción, constitución)
+Para asignar un score global ≥ 70, al menos UNA señal VERIFICABLE de
+empresa real debe estar presente en los campos del lead:
+- website con dominio propio (no gratuito/blogspot/etc.), o
+- linkedin_category presente en el input, o
+- tamaño/company_size/plantilla mencionada, o
+- ciudad + sector coherentes con negocio establecido (p.ej. Barcelona +
+  SaaS, Madrid + agencia digital — no un pueblo + sector genérico).
+
+Cargo + sector solos, por excelentes que sean, TOPAN EN 69. Un lead con
+título "CEO" y sector "SaaS" sin ninguna señal verificable de empresa
+real es un candidato prometedor pendiente de datos, no EN_RADAR.
+
+Si NINGUNA señal verificable está presente, tu score global máximo es
+69 y el reasoning DEBE decir: "prometedor por cargo+sector pero sin
+señales verificables de empresa real; requiere más datos". Prohibido
+inflar el score con presunciones tipo "asume tamaño típico de sector"
+o "presume capacidad media-alta" — son la fabricación que el gate
+anti-fabricación de arriba excluye.
+
 UMBRALES (los aplica el sistema, no tú)
 - >= ${NOVA_SCORE_THRESHOLD_EN_RADAR} -> EN_RADAR (candidato firme)
 - ${NOVA_SCORE_THRESHOLD_REVIEW}-${NOVA_SCORE_THRESHOLD_EN_RADAR - 1} -> NUEVO (esperar / revisar)
