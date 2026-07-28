@@ -29,6 +29,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { callClaude } from "@/lib/ai/claude";
 import {
   buildLeadPayload,
+  computeScoreUpdate,
   parseScoringResponse,
   type LeadForScoring,
 } from "@/lib/nova/scoring";
@@ -132,29 +133,26 @@ export const novaScore = inngest.createFunction(
         unscored += 1;
         continue;
       }
-      const update: LeadUpdate = {
-        icp_score: result.score,
-      };
-      const willPromote =
-        result.score >= NOVA_SCORE_THRESHOLD_EN_RADAR &&
-        lead.estado === "NUEVO";
-      if (willPromote) {
-        update.estado = "EN_RADAR";
-        promoted += 1;
-      }
-      const willFlag = result.score < NOVA_SCORE_THRESHOLD_REVIEW;
-      if (willFlag) {
-        update.needs_review = true;
-        flaggedReview += 1;
-      }
+      const decision = computeScoreUpdate(lead.estado, result, {
+        enRadar: NOVA_SCORE_THRESHOLD_EN_RADAR,
+        review: NOVA_SCORE_THRESHOLD_REVIEW,
+      });
+      if (decision.estado === "EN_RADAR") promoted += 1;
+      if (decision.needs_review) flaggedReview += 1;
+
       const existingCustom =
         lead.custom_fields && typeof lead.custom_fields === "object"
           ? (lead.custom_fields as Record<string, unknown>)
           : {};
-      update.custom_fields = {
-        ...existingCustom,
-        score_reasoning: result.reasoning,
-        score_sub_scores: result.sub_scores,
+      const update: LeadUpdate = {
+        icp_score: decision.icp_score,
+        estado: decision.estado,
+        needs_review: decision.needs_review,
+        custom_fields: {
+          ...existingCustom,
+          score_reasoning: decision.score_reasoning,
+          score_sub_scores: decision.sub_scores,
+        },
       };
 
       await step.run(`update-${lead.id}`, async () => {

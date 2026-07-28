@@ -92,6 +92,44 @@ export type ScoredLead = {
   reasoning: string;
 };
 
+export type ScoreThresholds = {
+  enRadar: number;
+  review: number;
+};
+
+// Pure state-machine decision for one lead's post-score update.
+// - `estado` only advances (NUEVO -> EN_RADAR). Later states like
+//   EN_SECUENCIA/RESPONDIO are not reverted by a new score, even if
+//   the score drops below the threshold.
+// - `needs_review` is only ever set to true here. Clearing it after
+//   manual review is a separate action.
+export type ScoreUpdate = {
+  icp_score: number;
+  estado?: "EN_RADAR";
+  needs_review?: true;
+  score_reasoning: string;
+  sub_scores: SubScores;
+};
+
+export function computeScoreUpdate(
+  currentEstado: string,
+  result: ScoredLead,
+  thresholds: ScoreThresholds,
+): ScoreUpdate {
+  const update: ScoreUpdate = {
+    icp_score: result.score,
+    score_reasoning: result.reasoning,
+    sub_scores: result.sub_scores,
+  };
+  if (result.score >= thresholds.enRadar && currentEstado === "NUEVO") {
+    update.estado = "EN_RADAR";
+  }
+  if (result.score < thresholds.review) {
+    update.needs_review = true;
+  }
+  return update;
+}
+
 function clampScore(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return 0;

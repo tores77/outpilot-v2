@@ -13,7 +13,8 @@
     "probe:vibe-fetch": "node --env-file-if-exists=.env.local scripts/probe-vibe-fetch.mjs",
     "probe:vibe-round2": "node --env-file-if-exists=.env.local scripts/probe-vibe-round2.mjs",
     "probe:vibe-round3": "node --env-file-if-exists=.env.local scripts/probe-vibe-round3.mjs",
-    "probe:vibe-enrich-first": "node --env-file-if-exists=.env.local scripts/probe-vibe-enrich-first.mjs"
+    "probe:vibe-enrich-first": "node --env-file-if-exists=.env.local scripts/probe-vibe-enrich-first.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -35,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

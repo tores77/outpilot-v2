@@ -34,6 +34,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Tests (vitest)
+        run: npm test
+
       # Build with placeholder envs. All routes are dynamic, so real values
       # are not needed to compile; placeholders just satisfy any top-level
       # env reads at module init.
