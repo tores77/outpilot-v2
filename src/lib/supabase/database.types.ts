@@ -87,6 +87,62 @@ export type Database = {
           },
         ]
       }
+      channel_accounts: {
+        Row: {
+          channel: Database["public"]["Enums"]["channel_kind"]
+          created_at: string
+          display_name: string | null
+          email_address: string
+          external_id: string
+          health_score: number | null
+          id: string
+          last_health_at: string | null
+          provider: Database["public"]["Enums"]["channel_provider"]
+          settings: Json
+          status: Database["public"]["Enums"]["channel_account_status"]
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel: Database["public"]["Enums"]["channel_kind"]
+          created_at?: string
+          display_name?: string | null
+          email_address: string
+          external_id: string
+          health_score?: number | null
+          id?: string
+          last_health_at?: string | null
+          provider: Database["public"]["Enums"]["channel_provider"]
+          settings?: Json
+          status?: Database["public"]["Enums"]["channel_account_status"]
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: Database["public"]["Enums"]["channel_kind"]
+          created_at?: string
+          display_name?: string | null
+          email_address?: string
+          external_id?: string
+          health_score?: number | null
+          id?: string
+          last_health_at?: string | null
+          provider?: Database["public"]["Enums"]["channel_provider"]
+          settings?: Json
+          status?: Database["public"]["Enums"]["channel_account_status"]
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_accounts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           actor: string | null
@@ -226,6 +282,70 @@ export type Database = {
         }
         Relationships: []
       }
+      touchpoints: {
+        Row: {
+          campaign_id: string | null
+          channel_account_id: string
+          created_at: string
+          direction: Database["public"]["Enums"]["touchpoint_direction"]
+          id: string
+          kind: Database["public"]["Enums"]["touchpoint_kind"]
+          lead_id: string
+          occurred_at: string
+          payload: Json
+          provider_event_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          channel_account_id: string
+          created_at?: string
+          direction: Database["public"]["Enums"]["touchpoint_direction"]
+          id?: string
+          kind: Database["public"]["Enums"]["touchpoint_kind"]
+          lead_id: string
+          occurred_at: string
+          payload?: Json
+          provider_event_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          channel_account_id?: string
+          created_at?: string
+          direction?: Database["public"]["Enums"]["touchpoint_direction"]
+          id?: string
+          kind?: Database["public"]["Enums"]["touchpoint_kind"]
+          lead_id?: string
+          occurred_at?: string
+          payload?: Json
+          provider_event_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "touchpoints_channel_account_id_fkey"
+            columns: ["channel_account_id"]
+            isOneToOne: false
+            referencedRelation: "channel_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "touchpoints_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "touchpoints_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       twenty_sync: {
         Row: {
           error: string | null
@@ -282,6 +402,9 @@ export type Database = {
       current_user_tenant_id: { Args: never; Returns: string }
     }
     Enums: {
+      channel_account_status: "active" | "paused" | "warming" | "disabled"
+      channel_kind: "email"
+      channel_provider: "lemlist"
       lead_estado:
         | "NUEVO"
         | "EN_SECUENCIA"
@@ -300,6 +423,16 @@ export type Database = {
         | "csv_import"
         | "manual"
         | "studio_inbound"
+      touchpoint_direction: "outbound" | "inbound"
+      touchpoint_kind:
+        | "email_sent"
+        | "email_delivered"
+        | "email_opened"
+        | "email_clicked"
+        | "email_replied"
+        | "email_bounced"
+        | "email_unsubscribed"
+        | "email_failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -427,6 +560,9 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      channel_account_status: ["active", "paused", "warming", "disabled"],
+      channel_kind: ["email"],
+      channel_provider: ["lemlist"],
       lead_estado: [
         "NUEVO",
         "EN_SECUENCIA",
@@ -446,6 +582,17 @@ export const Constants = {
         "csv_import",
         "manual",
         "studio_inbound",
+      ],
+      touchpoint_direction: ["outbound", "inbound"],
+      touchpoint_kind: [
+        "email_sent",
+        "email_delivered",
+        "email_opened",
+        "email_clicked",
+        "email_replied",
+        "email_bounced",
+        "email_unsubscribed",
+        "email_failed",
       ],
     },
   },
