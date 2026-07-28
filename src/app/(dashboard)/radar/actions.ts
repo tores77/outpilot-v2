@@ -1,20 +1,14 @@
 "use server";
 
-// Server Action for /radar/import. T012 did raw upsert; T013 wraps it with
-// the Nova cleanup pipeline:
-//   1. parse CSV
-//   2. map recognised columns + drop invalid emails
-//   3. cleanupLeadBatch: mark generic emails as needs_review + dedupe by
-//      normalised company keeping the highest-ranked title
-//   4. upsert survivors with source='csv_import' and needs_review set
-//
-// Duplicates by (tenant_id, email) already in the database are still
-// silently ignored (ignoreDuplicates=true), so re-uploading is safe.
+// Two server actions:
+//   - importCsvAction (T012 + T013 cleanup pipeline)
+//   - scoreLeadsAction (T015): enqueue nova-score for the current tenant
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Papa from "papaparse";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { inngest } from "@/lib/inngest";
 import { cleanupLeadBatch, type LeadDraft } from "@/lib/nova/cleanup";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -197,4 +191,29 @@ export async function importCsvAction(formData: FormData): Promise<void> {
 
   revalidatePath("/radar");
   redirect(`/radar?${params.toString()}`);
+}
+
+export async function scoreLeadsAction(): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) redirect("/login");
+
+  const { data: allowed } = await supabase
+    .from("allowed_users")
+    .select("tenant_id")
+    .eq("email", user.email)
+    .maybeSingle();
+  if (!allowed) redirect("/login?error=access_denied");
+
+  await inngest.send({
+    name: "nova/score.requested",
+    data: {
+      tenantId: allowed.tenant_id,
+      requestedBy: user.email,
+    },
+  });
+
+  redirect("/radar?score_started=1");
 }

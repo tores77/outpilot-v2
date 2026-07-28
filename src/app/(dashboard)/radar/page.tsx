@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { NOVA_SCORE_BATCH_SIZE } from "@/config/scoring";
+import { scoreLeadsAction } from "./actions";
 
 type LeadEstado = Database["public"]["Enums"]["lead_estado"];
 
@@ -48,6 +50,7 @@ type RadarSearchParams = {
   review_count?: string;
   total?: string;
   vibe_started?: string;
+  score_started?: string;
 };
 
 function parseEstado(raw: string | undefined): LeadEstado | null {
@@ -113,6 +116,14 @@ export default async function RadarPage({
   const { data, error } = await query;
   if (error) throw error;
 
+  // Count how many leads are still missing an ICP score. Cheap: no rows
+  // are transferred (head:true) and the count uses the (tenant_id, ...)
+  // index. Used to label the "Puntuar" button with a concrete number.
+  const { count: pendingScoreCount } = await supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .is("icp_score", null);
+
   const rows = data ?? [];
   const hasMore = rows.length > PAGE_SIZE;
   const visibleRows = hasMore ? rows.slice(0, PAGE_SIZE) : rows;
@@ -140,7 +151,23 @@ export default async function RadarPage({
             corre en el import; el scoring ICP llega en T015.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {pendingScoreCount !== null && pendingScoreCount > 0 && (
+            <form action={scoreLeadsAction}>
+              <button
+                type="submit"
+                className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/80 transition-colors hover:border-accent/40 hover:text-foreground"
+                title={`Puntúa los próximos ${Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} leads sin score. Restantes tras el batch: ${Math.max(0, pendingScoreCount - NOVA_SCORE_BATCH_SIZE)}.`}
+              >
+                Puntuar {Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} pendientes
+                {pendingScoreCount > NOVA_SCORE_BATCH_SIZE && (
+                  <span className="ml-1 text-foreground/40">
+                    /{pendingScoreCount}
+                  </span>
+                )}
+              </button>
+            </form>
+          )}
           <Link
             href="/radar/vibe"
             className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/80 transition-colors hover:border-accent/40 hover:text-foreground"
@@ -163,6 +190,15 @@ export default async function RadarPage({
         >
           Fetch de Vibe encolado. El job corre en Inngest; los leads
           aparecerán aquí en cuanto termine.
+        </div>
+      )}
+      {sp.score_started === "1" && (
+        <div
+          role="status"
+          className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
+        >
+          Batch de scoring encolado. Refresca en unos segundos para ver
+          los ICP scores y las transiciones a EN_RADAR.
         </div>
       )}
 

@@ -7,10 +7,10 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/lib/inngest";
 import { healthcheck } from "@/jobs/healthcheck";
-import { devProbeClaude } from "@/jobs/dev-probe-claude";
 import { novaVibeFetch } from "@/jobs/nova-vibe-fetch";
+import { novaScore } from "@/jobs/nova-score";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [healthcheck, devProbeClaude, novaVibeFetch],
+  functions: [healthcheck, novaVibeFetch, novaScore],
 });
