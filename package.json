@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "env:check": "node --env-file-if-exists=.env.local scripts/check-env.mjs",
-    "gen-types": "node --env-file-if-exists=.env.local scripts/gen-types.mjs"
+    "gen-types": "node --env-file-if-exists=.env.local scripts/gen-types.mjs",
+    "probe:vibe": "node --env-file-if-exists=.env.local scripts/probe-vibe.mjs",
+    "probe:vibe-fetch": "node --env-file-if-exists=.env.local scripts/probe-vibe-fetch.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

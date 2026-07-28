@@ -16,8 +16,10 @@ const REQUIRED = [
   "INNGEST_SIGNING_KEY",
 ];
 
-// Dev tooling only; not read at runtime. Warn but don't fail if missing.
-const OPTIONAL = ["SUPABASE_ACCESS_TOKEN"];
+// Warn but don't fail if missing. SUPABASE_ACCESS_TOKEN is dev tooling only
+// (gen-types). VIBE_API_KEY is runtime once T014 ships but optional in dev
+// until the fetch actually runs.
+const OPTIONAL = ["SUPABASE_ACCESS_TOKEN", "VIBE_API_KEY"];
 
 const missing = REQUIRED.filter((key) => !process.env[key]);
 

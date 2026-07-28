@@ -47,6 +47,7 @@ type RadarSearchParams = {
   deduped?: string;
   review_count?: string;
   total?: string;
+  vibe_started?: string;
 };
 
 function parseEstado(raw: string | undefined): LeadEstado | null {
@@ -139,13 +140,31 @@ export default async function RadarPage({
             corre en el import; el scoring ICP llega en T015.
           </p>
         </div>
-        <Link
-          href="/radar/import"
-          className="rounded-md border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
-        >
-          Importar CSV
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/radar/vibe"
+            className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/80 transition-colors hover:border-accent/40 hover:text-foreground"
+          >
+            Fetch de Vibe
+          </Link>
+          <Link
+            href="/radar/import"
+            className="rounded-md border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+          >
+            Importar CSV
+          </Link>
+        </div>
       </div>
+
+      {sp.vibe_started === "1" && (
+        <div
+          role="status"
+          className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
+        >
+          Fetch de Vibe encolado. El job corre en Inngest; los leads
+          aparecerán aquí en cuanto termine.
+        </div>
+      )}
 
       {importFlash && (
         <div

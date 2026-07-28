@@ -64,6 +64,16 @@ valor exacto.
 
 ## Ideas (sin deadline)
 
+### Enrich individual de leads existentes vía Vibe/Explorium
+
+T014 solo cubre bulk-fetch (buscar y traer prospects nuevos). Un caso natural
+es enriquecer un lead que ya existe en `leads` (llegado por CSV o studio
+inbound) con datos de Vibe: LinkedIn, sector, tamaño empresa, etc. Requiere
+UX aparte (botón "Enrich" en la ficha del lead), rate-limit por lead, coste
+por operación y persistencia en `custom_fields` o columnas nuevas. No es
+urgente para el pipeline de Fase 1; se activa cuando aparezca un caso real
+(p. ej. inbound de studio sin datos suficientes para scoring en T015).
+
 ### Consolidación cross-import de leads por empresa
 
 El dedupe de Nova (T013) trabaja intra-batch: dentro del mismo CSV o lote

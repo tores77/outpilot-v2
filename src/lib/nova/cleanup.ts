@@ -143,6 +143,9 @@ export function isGenericEmail(email: string): boolean {
 // Rank scale: lower number = more senior. Applied to the *first* pattern
 // that matches, so order the patterns from broadest+most senior to
 // narrower+less senior.
+// TODO: ajustar cuando aparezcan cargos españoles reales en Vibe/CSV. El
+// patrón /\bvp\b|vice\s+president\b/ matchea "Vice President" pero no
+// "Vicepresidente/a"; añadir cuando lo veamos en datos, no antes.
 const TITLE_RANKS: ReadonlyArray<[RegExp, number]> = [
   [/\b(founder|co-?founder|fundador|fundadora)\b/, 1],
   [/\bceo\b|chief\s+executive/, 1],
