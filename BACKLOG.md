@@ -97,38 +97,31 @@ Pendiente para Fase 3 (T027-T029):
 Sin decisión ahora bloquea T027 lo justo: Echo puede leer el payload
 tal cual mientras la retención se define en Fase 3.
 
-### Inngest auto-sync tras deploy — investigación abierta
+### Inngest auto-sync tras deploy — CAUSA IDENTIFICADA, en verificación
 
 **Síntoma (2026-09-23):** los deploys de la sesión de arranque de Fase 2
 (commits `809e913` → `8b86250`) no dispararon el auto-sync de Inngest.
-El panel siguió mostrando SDK 4.13 y las 3 funciones del cierre de Fase
-1 hasta que Pere hizo un Resync manual. El sync manual sí funcionó: SDK
-4.21.0, 3 funciones.
+Resync manual funcionaba, auto-sync no.
 
-**Causas probables** (por orden):
+**Causa (identificada por Pere en la config de la integración):**
+**Vercel Deployment Protection** bloqueaba el sync. La integración de
+Inngest hace la sincronización contra la URL única del deployment, que
+está protegida por Vercel — la request se rechaza en silencio (Inngest
+no reintenta con la URL de producción).
 
-1. **Proyecto no vinculado** a la integración de Inngest en Vercel
-   Marketplace. La integración instalada no es lo mismo que el proyecto
-   vinculado: hay que autorizar cada proyecto explícitamente. Pere ha
-   revisado hoy si estaba vinculado — pendiente de confirmar la
-   respuesta del bracket sin rellenar en el mensaje de gate.
-2. Cambio en env vars entre deploys (INNGEST_EVENT_KEY o
-   INNGEST_SIGNING_KEY) que rompiera la autenticación del webhook de
-   sync. Descartable si el Resync manual funciona sin tocar keys.
-3. Bug puntual en la integración en la ventana de los deploys.
+**Fix aplicado por Pere:**
+- Configurado el "Deployment protection key" (Protection Bypass for
+  Automation de Vercel) dentro de la integración de Inngest.
+- Añadido el dominio de producción `outpilot-v2-six.vercel.app`.
 
-**Fallback si el vínculo estaba OK:** GitHub Action que dispara tras el
-CI verde en main y hace PUT a `${PRODUCTION_URL}/api/inngest` con
-reintentos, para forzar el sync. **YAML ya redactado** en
-`docs/inngest-autosync-fallback.md`; activación = copiar a
-`.github/workflows/inngest-sync.yml` + `PRODUCTION_URL` secret. No se
-activa preventivamente: si la causa era el vínculo, este fallback es
-ruido innecesario.
+**Verificación pendiente:** el próximo deploy con funciones nuevas
+(previsiblemente T023 Volt) confirma que "Last synced at" se actualiza
+solo. Si es OK → cerrar esta entrada del BACKLOG y borrar el doc del
+fallback en `docs/inngest-autosync-fallback.md`.
 
-**Mientras se resuelve:** el checklist obliga a que cada deploy con
-funciones nuevas verifique el sync y la versión de SDK en el panel
-antes de considerar la tarea cerrada. Volt (T023) es el próximo que
-añade funciones — cerrar antes de ese deploy.
+**Fallback GH Action:** sigue documentado en
+`docs/inngest-autosync-fallback.md`, sin activar. Queda como red de
+seguridad si el fix se rompe en el futuro.
 
 ### Out-of-range dep bumps (sin fecha)
 
