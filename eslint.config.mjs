@@ -23,6 +23,25 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
 
+  // Respetar la convencion "underscore = intentionally unused" para
+  // variables, args y catch bindings. Las firmas de interfaces (p. ej.
+  // ChannelProvider.parseWebhookEvent(rawBody, _headers)) obligan a
+  // mantener parametros que no siempre se usan; el underscore es la
+  // senal explicita.
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+
   // Constitution §6 enforcement — service_role and its transitive wrapper
   // (lib/ai/claude) can only be imported from src/jobs/**. Applied to all
   // TypeScript sources except:
