@@ -1,1 +1,2 @@
 @AGENTS.md
+@docs/REVIEWER-CHECKLIST.md
