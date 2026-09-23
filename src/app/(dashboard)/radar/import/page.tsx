@@ -33,16 +33,16 @@ export default async function RadarImportPage({
     <section className="max-w-3xl space-y-8">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-semibold">Importar CSV</h1>
-          <p className="mt-2 text-sm text-foreground/60">
-            Radar / import — inserta leads con <code className="text-accent">source=csv_import</code>.
+          <h1 className="text-4xl">Importar CSV</h1>
+          <p className="mt-2 text-sm text-muted">
+            Radar / import — inserta leads con <code className="text-foreground">source=csv_import</code>.
             La limpieza (dedupe empresa/cargo, normalización de tildes, flag REVIEW para emails
             genéricos) llega en T013; ahora se insertan tal cual.
           </p>
         </div>
         <Link
           href="/radar"
-          className="rounded-md border border-hairline px-3 py-1.5 text-xs text-foreground/70 hover:border-accent/40 hover:text-foreground"
+          className="rounded-md border border-hairline bg-background px-3 py-1.5 text-xs text-foreground hover:border-foreground/40"
         >
           ← Volver a Radar
         </Link>
@@ -51,21 +51,21 @@ export default async function RadarImportPage({
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+          className="rounded-md border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent"
         >
           <p>{errorMessage}</p>
-          {detail && <p className="mt-1 text-xs text-red-400/80">{detail}</p>}
+          {detail && <p className="mt-1 text-xs text-accent-hover">{detail}</p>}
         </div>
       )}
 
       <form
         action={importCsvAction}
-        className="space-y-6 rounded-lg border border-hairline p-6"
+        className="space-y-6 rounded-lg border border-hairline bg-surface p-6"
       >
         <div>
           <label
             htmlFor="csv-file"
-            className="block text-sm font-medium text-foreground/80"
+            className="block text-sm font-medium text-foreground"
           >
             Archivo CSV
           </label>
@@ -75,12 +75,12 @@ export default async function RadarImportPage({
             name="file"
             accept=".csv,text/csv"
             required
-            className="mt-2 block w-full cursor-pointer rounded-md border border-hairline bg-foreground/5 px-3 py-2 text-sm file:mr-4 file:rounded-md file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent hover:file:bg-accent/20"
+            className="mt-2 block w-full cursor-pointer rounded-md border border-hairline bg-background px-3 py-2 text-sm text-foreground file:mr-4 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-accent-hover"
           />
-          <p className="mt-2 text-xs text-foreground/50">
+          <p className="mt-2 text-xs text-muted">
             La cabecera del CSV es case-insensitive y admite variantes en español
             (nombre, empresa, cargo, país, …). Cualquier columna no reconocida
-            entra en <code className="text-accent/80">custom_fields</code>.
+            entra en <code className="text-foreground">custom_fields</code>.
           </p>
         </div>
 
@@ -88,11 +88,11 @@ export default async function RadarImportPage({
           <p className="mb-2 text-xs uppercase tracking-wider text-muted">
             Columnas reconocidas
           </p>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-foreground/70 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-foreground sm:grid-cols-3">
             {EXPECTED_COLUMNS.map(([col, req]) => (
               <div key={col} className="flex items-center gap-2">
-                <code className="text-accent/80">{col}</code>
-                <span className="text-foreground/40">{req}</span>
+                <code className="text-foreground">{col}</code>
+                <span className="text-muted">{req}</span>
               </div>
             ))}
           </div>
@@ -100,7 +100,7 @@ export default async function RadarImportPage({
 
         <button
           type="submit"
-          className="rounded-md border border-accent/40 bg-accent/10 px-5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+          className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
         >
           Subir e importar
         </button>

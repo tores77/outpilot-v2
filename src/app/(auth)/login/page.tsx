@@ -42,14 +42,14 @@ export default async function LoginPage({
         <p className="text-[10px] uppercase tracking-[0.3em] text-muted">
           Umania Labs
         </p>
-        <p className="pt-2 text-sm text-foreground/60">
+        <p className="pt-2 text-sm text-muted">
           Herramienta interna. Acceso restringido a la allowlist.
         </p>
       </div>
       <LoginButton />
       {errorMessage && (
         <p
-          className="max-w-sm text-center text-sm text-red-400"
+          className="max-w-sm text-center text-sm text-accent"
           role="alert"
         >
           {errorMessage}

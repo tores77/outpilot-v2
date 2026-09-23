@@ -38,20 +38,22 @@ async function loadMailboxes(): Promise<MailboxesResult> {
   }
 }
 
+// Brand refresh 2026: OK neutro (es el default happy), paused ámbar,
+// disabled negro sobre gris (señala no-operativo sin verde/rojo).
 const STATUS_STYLES: Record<string, string> = {
-  OK: "bg-accent/10 text-accent",
-  paused: "bg-yellow-500/10 text-yellow-300",
-  disabled: "bg-red-500/10 text-red-300",
+  OK: "bg-surface text-foreground",
+  paused: "bg-amber-100 text-amber-900",
+  disabled: "bg-foreground text-background",
 };
 
 function statusClass(status: string): string {
-  return STATUS_STYLES[status] ?? "bg-foreground/10 text-foreground/70";
+  return STATUS_STYLES[status] ?? "bg-surface text-foreground";
 }
 
 function CapacitySummary({ active }: { active: MailboxSummary[] }) {
   if (active.length === 0) {
     return (
-      <p className="text-sm text-foreground/60">
+      <p className="text-sm text-muted">
         No hay mailboxes activos (<code>status === &quot;OK&quot;</code>);
         capacidad semanal 0.
       </p>
@@ -70,23 +72,23 @@ function CapacitySummary({ active }: { active: MailboxSummary[] }) {
     const perDay = effectiveDailySendsPerMailbox(limit);
     const limitedByWindows = perDay < limit;
     return (
-      <p className="text-sm text-foreground/80">
+      <p className="text-sm text-foreground">
         {active.length} mailboxes × {perDay} envíos/día
         {limitedByWindows && (
-          <span className="text-foreground/60">
+          <span className="text-muted">
             {" "}
             (limitado por ventanas; límite Lemlist {limit})
           </span>
         )}{" "}
         × {VOLT_ACTIVE_DAYS_PER_WEEK} días ={" "}
-        <strong className="text-foreground">{total}</strong>/semana
+        <strong className="text-accent">{total}</strong>/semana
       </p>
     );
   }
 
   return (
-    <p className="text-sm text-foreground/80">
-      <strong className="text-foreground">{total}</strong> emails/semana ·{" "}
+    <p className="text-sm text-foreground">
+      <strong className="text-accent">{total}</strong> emails/semana ·{" "}
       {active.length} mailboxes con caps mixtos (techo por ventanas:{" "}
       {VOLT_SCHEDULE_DAILY_CAP}/día).
     </p>
@@ -97,16 +99,16 @@ function ErrorBlock({ message }: { message: string }) {
   return (
     <div
       role="alert"
-      className="space-y-3 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-200"
+      className="space-y-3 rounded-md border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent"
     >
       <p className="font-medium">No pude leer los mailboxes de Lemlist.</p>
-      <pre className="whitespace-pre-wrap break-words text-xs text-red-100/80">
+      <pre className="whitespace-pre-wrap break-words text-xs text-accent-hover">
         {message}
       </pre>
       <div>
         <Link
           href="/settings"
-          className="inline-block rounded-md border border-red-500/40 px-3 py-1 text-xs text-red-100 transition-colors hover:bg-red-500/10"
+          className="inline-block rounded-md bg-accent px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
         >
           Reintentar
         </Link>
@@ -121,8 +123,8 @@ export default async function SettingsPage() {
   return (
     <section className="space-y-8">
       <div>
-        <h1 className="text-4xl font-semibold">Settings</h1>
-        <p className="mt-2 text-sm text-foreground/60">
+        <h1 className="text-4xl">Settings</h1>
+        <p className="mt-2 text-sm text-muted">
           Config del canal Lemlist. Otros ajustes (allowlist, Twenty) se
           añaden aquí a medida que las fases los pidan.
         </p>
@@ -130,7 +132,7 @@ export default async function SettingsPage() {
 
       <div className="space-y-4">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-2xl font-semibold">Mailboxes de Lemlist</h2>
+          <h2 className="text-2xl">Mailboxes de Lemlist</h2>
           <p className="text-xs uppercase tracking-wider text-muted">
             Solo lectura
           </p>
@@ -138,7 +140,7 @@ export default async function SettingsPage() {
 
         {result.ok ? (
           <>
-            <div className="rounded-md border border-hairline px-4 py-3">
+            <div className="rounded-md border border-hairline bg-surface px-4 py-3">
               <CapacitySummary
                 active={result.mailboxes.filter((m) => m.status === "OK")}
               />
@@ -146,7 +148,7 @@ export default async function SettingsPage() {
 
             <div className="overflow-x-auto rounded-md border border-hairline">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="bg-surface">
                   <tr className="border-b border-hairline text-left text-xs uppercase tracking-wider text-muted">
                     <th className="px-4 py-3 font-medium">Email</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
@@ -161,7 +163,7 @@ export default async function SettingsPage() {
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-4 py-10 text-center text-sm text-foreground/50"
+                        className="px-4 py-10 text-center text-sm text-muted"
                       >
                         No hay mailboxes en la cuenta de Lemlist.
                       </td>
@@ -170,7 +172,7 @@ export default async function SettingsPage() {
                   {result.mailboxes.map((m) => (
                     <tr
                       key={m.externalId}
-                      className="border-b border-hairline/60 last:border-b-0 hover:bg-foreground/[0.03]"
+                      className="border-b border-hairline last:border-b-0 hover:bg-surface"
                     >
                       <td className="px-4 py-3 font-medium text-foreground">
                         {m.email}
@@ -182,17 +184,17 @@ export default async function SettingsPage() {
                           {m.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-foreground/70">
+                      <td className="px-4 py-3 text-foreground">
                         {m.provider}
                       </td>
-                      <td className="px-4 py-3 text-foreground/80">
+                      <td className="px-4 py-3 text-foreground">
                         {m.emailLimit}
                       </td>
-                      <td className="px-4 py-3 text-foreground/70">
+                      <td className="px-4 py-3 text-foreground">
                         {m.warmupActive ? "Activo" : "Inactivo"}
                       </td>
                       <td
-                        className="px-4 py-3 text-foreground/40"
+                        className="px-4 py-3 text-muted"
                         title="Placeholder — Sage (T035) calculará el health real."
                       >
                         —

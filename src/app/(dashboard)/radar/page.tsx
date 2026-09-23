@@ -21,19 +21,23 @@ const ESTADO_VALUES: LeadEstado[] = [
   "NURTURING",
 ];
 
+// Brand refresh 2026: badges neutros (gris/negro) por defecto. Solo
+// EN_RADAR (rojo suave) y NURTURING (ámbar) llevan color. REVIEW se
+// pinta aparte porque no es un valor del enum lead_estado.
+const NEUTRAL_BADGE = "bg-surface text-foreground";
 const ESTADO_STYLES: Record<LeadEstado, string> = {
-  NUEVO: "bg-foreground/10 text-foreground/70",
-  EN_RADAR: "bg-foreground/10 text-foreground/70",
-  EN_SECUENCIA: "bg-blue-500/10 text-blue-300",
-  RESPONDIO: "bg-accent/10 text-accent",
-  REUNION_AGENDADA: "bg-accent/10 text-accent",
-  REUNION_REALIZADA: "bg-accent/10 text-accent",
-  NO_SHOW: "bg-red-500/10 text-red-300",
-  PROPUESTA_ENVIADA: "bg-blue-500/10 text-blue-300",
-  NEGOCIACION: "bg-blue-500/10 text-blue-300",
-  CLIENTE: "bg-accent/15 text-accent",
-  PERDIDO: "bg-red-500/10 text-red-300",
-  NURTURING: "bg-yellow-500/10 text-yellow-300",
+  NUEVO: NEUTRAL_BADGE,
+  EN_RADAR: "bg-accent-soft text-accent",
+  EN_SECUENCIA: NEUTRAL_BADGE,
+  RESPONDIO: NEUTRAL_BADGE,
+  REUNION_AGENDADA: NEUTRAL_BADGE,
+  REUNION_REALIZADA: NEUTRAL_BADGE,
+  NO_SHOW: NEUTRAL_BADGE,
+  PROPUESTA_ENVIADA: NEUTRAL_BADGE,
+  NEGOCIACION: NEUTRAL_BADGE,
+  CLIENTE: NEUTRAL_BADGE,
+  PERDIDO: NEUTRAL_BADGE,
+  NURTURING: "bg-amber-100 text-amber-900",
 };
 
 const PAGE_SIZE = 50;
@@ -144,8 +148,8 @@ export default async function RadarPage({
     <section className="space-y-6">
       <div className="flex items-end justify-between gap-6">
         <div>
-          <h1 className="text-4xl font-semibold">Radar</h1>
-          <p className="mt-2 text-sm text-foreground/60">
+          <h1 className="text-4xl">Radar</h1>
+          <p className="mt-2 text-sm text-muted">
             Leads recibidos por Vibe Prospecting, CSV o el formulario inbound
             de studio. La limpieza (dedupe empresa/cargo, tildes, flag REVIEW)
             corre en el import; el scoring ICP llega en T015.
@@ -156,12 +160,12 @@ export default async function RadarPage({
             <form action={scoreLeadsAction}>
               <button
                 type="submit"
-                className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/80 transition-colors hover:border-accent/40 hover:text-foreground"
+                className="rounded-md border border-hairline bg-background px-4 py-2 text-sm text-foreground transition-colors hover:border-foreground/40"
                 title={`Puntúa los próximos ${Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} leads sin score. Restantes tras el batch: ${Math.max(0, pendingScoreCount - NOVA_SCORE_BATCH_SIZE)}.`}
               >
                 Puntuar {Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} pendientes
                 {pendingScoreCount > NOVA_SCORE_BATCH_SIZE && (
-                  <span className="ml-1 text-foreground/40">
+                  <span className="ml-1 text-muted">
                     /{pendingScoreCount}
                   </span>
                 )}
@@ -170,13 +174,13 @@ export default async function RadarPage({
           )}
           <Link
             href="/radar/vibe"
-            className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/80 transition-colors hover:border-accent/40 hover:text-foreground"
+            className="rounded-md border border-hairline bg-background px-4 py-2 text-sm text-foreground transition-colors hover:border-foreground/40"
           >
             Fetch de Vibe
           </Link>
           <Link
             href="/radar/import"
-            className="rounded-md border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
             Importar CSV
           </Link>
@@ -186,7 +190,7 @@ export default async function RadarPage({
       {sp.vibe_started === "1" && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
+          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
         >
           Fetch de Vibe encolado. El job corre en Inngest; los leads
           aparecerán aquí en cuanto termine.
@@ -195,7 +199,7 @@ export default async function RadarPage({
       {sp.score_started === "1" && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
+          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
         >
           Batch de scoring encolado. Refresca en unos segundos para ver
           los ICP scores y las transiciones a EN_RADAR.
@@ -205,7 +209,7 @@ export default async function RadarPage({
       {importFlash && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent/90"
+          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
         >
           Importación completada: <strong>{importFlash.imported}</strong>{" "}
           añadidos, {importFlash.duplicates} duplicados en BD,{" "}
@@ -213,7 +217,7 @@ export default async function RadarPage({
           {importFlash.review} marcados{" "}
           <Link
             href="/radar?review=1"
-            className="underline decoration-dotted underline-offset-2 hover:text-accent"
+            className="underline decoration-dotted underline-offset-2 hover:text-accent-hover"
           >
             REVIEW
           </Link>
@@ -221,13 +225,13 @@ export default async function RadarPage({
         </div>
       )}
 
-      <form method="get" className="flex flex-wrap items-end gap-4 rounded-md border border-hairline p-4">
+      <form method="get" className="flex flex-wrap items-end gap-4 rounded-md border border-hairline bg-surface p-4">
         <label className="flex flex-col gap-1 text-xs uppercase tracking-wider text-muted">
           Estado
           <select
             name="estado"
             defaultValue={sp.estado ?? ""}
-            className="rounded-md border border-hairline bg-foreground/5 px-3 py-1.5 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+            className="rounded-md border border-hairline bg-background px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           >
             <option value="">Todos</option>
             {ESTADO_VALUES.map((v) => (
@@ -247,17 +251,17 @@ export default async function RadarPage({
             max={100}
             defaultValue={sp.min_score ?? ""}
             placeholder="0-100"
-            className="w-32 rounded-md border border-hairline bg-foreground/5 px-3 py-1.5 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+            className="w-32 rounded-md border border-hairline bg-background px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           />
         </label>
 
-        <label className="flex items-center gap-2 pb-1.5 text-xs text-foreground/70">
+        <label className="flex items-center gap-2 pb-1.5 text-xs text-foreground">
           <input
             type="checkbox"
             name="review"
             value="1"
             defaultChecked={reviewOnly}
-            className="h-4 w-4 rounded border-hairline bg-foreground/5 text-accent focus:ring-1 focus:ring-accent/40"
+            className="h-4 w-4 rounded border-hairline bg-background text-accent focus:ring-1 focus:ring-accent/40"
           />
           Solo REVIEW
         </label>
@@ -265,14 +269,14 @@ export default async function RadarPage({
         <div className="flex gap-2">
           <button
             type="submit"
-            className="rounded-md border border-accent/40 bg-accent/10 px-4 py-1.5 text-sm text-accent transition-colors hover:bg-accent/20"
+            className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
             Aplicar
           </button>
           {(estado || minScore !== null || reviewOnly) && (
             <Link
               href="/radar"
-              className="rounded-md border border-hairline px-4 py-1.5 text-sm text-foreground/70 transition-colors hover:border-accent/40 hover:text-foreground"
+              className="rounded-md border border-hairline bg-background px-4 py-1.5 text-sm text-foreground transition-colors hover:border-foreground/40"
             >
               Limpiar
             </Link>
@@ -282,7 +286,7 @@ export default async function RadarPage({
 
       <div className="overflow-x-auto rounded-md border border-hairline">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="bg-surface">
             <tr className="border-b border-hairline text-left text-xs uppercase tracking-wider text-muted">
               <th className="px-4 py-3 font-medium">Lead</th>
               <th className="px-4 py-3 font-medium">Empresa / cargo</th>
@@ -297,7 +301,7 @@ export default async function RadarPage({
               <tr>
                 <td
                   colSpan={6}
-                  className="px-4 py-10 text-center text-sm text-foreground/50"
+                  className="px-4 py-10 text-center text-sm text-muted"
                 >
                   Sin leads que coincidan con los filtros.
                 </td>
@@ -312,13 +316,13 @@ export default async function RadarPage({
               return (
                 <tr
                   key={lead.id}
-                  className="border-b border-hairline/60 last:border-b-0 hover:bg-foreground/[0.03]"
+                  className="border-b border-hairline last:border-b-0 hover:bg-surface"
                 >
                   <td className="px-4 py-3">
                     <div className="font-medium text-foreground">{displayName}</div>
-                    <div className="text-xs text-foreground/50">{lead.email}</div>
+                    <div className="text-xs text-muted">{lead.email}</div>
                   </td>
-                  <td className="px-4 py-3 text-foreground/80">{companyLine}</td>
+                  <td className="px-4 py-3 text-foreground">{companyLine}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       <span
@@ -331,18 +335,18 @@ export default async function RadarPage({
                       {lead.needs_review && (
                         <span
                           title="Marcado por el pipeline de limpieza (email genérico u otra señal)."
-                          className="inline-block rounded bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-yellow-300"
+                          className="inline-block rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-900"
                         >
                           REVIEW
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-foreground/80">
-                    {lead.icp_score ?? <span className="text-foreground/40">—</span>}
+                  <td className="px-4 py-3 text-foreground">
+                    {lead.icp_score ?? <span className="text-muted">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-xs text-foreground/60">{lead.source}</td>
-                  <td className="px-4 py-3 text-xs text-foreground/60">
+                  <td className="px-4 py-3 text-xs text-muted">{lead.source}</td>
+                  <td className="px-4 py-3 text-xs text-muted">
                     {formatDate(lead.created_at)}
                   </td>
                 </tr>
@@ -352,7 +356,7 @@ export default async function RadarPage({
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-foreground/60">
+      <div className="flex items-center justify-between text-xs text-muted">
         <div>
           Página {page} · mostrando {visibleRows.length}
         </div>
@@ -360,7 +364,7 @@ export default async function RadarPage({
           {page > 1 && (
             <Link
               href={buildPageLink(sp, page - 1)}
-              className="rounded-md border border-hairline px-3 py-1 transition-colors hover:border-accent/40 hover:text-foreground"
+              className="rounded-md border border-hairline bg-background px-3 py-1 transition-colors hover:border-foreground/40 hover:text-foreground"
             >
               ← Anterior
             </Link>
@@ -368,7 +372,7 @@ export default async function RadarPage({
           {hasMore && (
             <Link
               href={buildPageLink(sp, page + 1)}
-              className="rounded-md border border-hairline px-3 py-1 transition-colors hover:border-accent/40 hover:text-foreground"
+              className="rounded-md border border-hairline bg-background px-3 py-1 transition-colors hover:border-foreground/40 hover:text-foreground"
             >
               Siguiente →
             </Link>

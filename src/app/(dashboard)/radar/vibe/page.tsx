@@ -95,8 +95,8 @@ export default async function VibeFetchPage({
     <section className="max-w-3xl space-y-8">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-semibold">Fetch de Vibe</h1>
-          <p className="mt-2 text-sm text-foreground/60">
+          <h1 className="text-4xl">Fetch de Vibe</h1>
+          <p className="mt-2 text-sm text-muted">
             {confirmMode
               ? "Confirma la ejecución. Las estadísticas son gratis; el fetch se descuenta del saldo de Vibe."
               : "Dimensiona con Vibe (Explorium). El fetch nunca se dispara solo: humano, siempre."}
@@ -104,7 +104,7 @@ export default async function VibeFetchPage({
         </div>
         <Link
           href="/radar"
-          className="rounded-md border border-hairline px-3 py-1.5 text-xs text-foreground/70 hover:border-accent/40 hover:text-foreground"
+          className="rounded-md border border-hairline bg-background px-3 py-1.5 text-xs text-foreground hover:border-foreground/40"
         >
           ← Volver a Radar
         </Link>
@@ -113,10 +113,10 @@ export default async function VibeFetchPage({
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+          className="rounded-md border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent"
         >
           <p>{errorMessage}</p>
-          {sp.detail && <p className="mt-1 text-xs text-red-400/80">{sp.detail}</p>}
+          {sp.detail && <p className="mt-1 text-xs text-accent-hover">{sp.detail}</p>}
         </div>
       )}
 
@@ -137,7 +137,7 @@ function FilterForm({ filters }: { filters: { countries: string[]; sectors: stri
   return (
     <form
       action={estimateFetchAction}
-      className="space-y-6 rounded-lg border border-hairline p-6"
+      className="space-y-6 rounded-lg border border-hairline bg-surface p-6"
     >
       <div>
         <p className="mb-2 text-xs uppercase tracking-wider text-muted">Países</p>
@@ -145,14 +145,14 @@ function FilterForm({ filters }: { filters: { countries: string[]; sectors: stri
           {VIBE_AVAILABLE_COUNTRIES.map((c) => (
             <label
               key={c.code}
-              className="flex items-center gap-2 text-sm text-foreground/80"
+              className="flex items-center gap-2 text-sm text-foreground"
             >
               <input
                 type="checkbox"
                 name="countries"
                 value={c.code}
                 defaultChecked={filters.countries.includes(c.code)}
-                className="h-4 w-4 rounded border-hairline bg-foreground/5 text-accent focus:ring-1 focus:ring-accent/40"
+                className="h-4 w-4 rounded border-hairline bg-background text-accent focus:ring-1 focus:ring-accent/40"
               />
               {c.label}
             </label>
@@ -168,20 +168,20 @@ function FilterForm({ filters }: { filters: { countries: string[]; sectors: stri
           {VIBE_AVAILABLE_SECTORS.map((s) => (
             <label
               key={s}
-              className="flex items-center gap-2 text-sm text-foreground/80"
+              className="flex items-center gap-2 text-sm text-foreground"
             >
               <input
                 type="checkbox"
                 name="sectors"
                 value={s}
                 defaultChecked={filters.sectors.includes(s)}
-                className="h-4 w-4 rounded border-hairline bg-foreground/5 text-accent focus:ring-1 focus:ring-accent/40"
+                className="h-4 w-4 rounded border-hairline bg-background text-accent focus:ring-1 focus:ring-accent/40"
               />
               {s}
             </label>
           ))}
         </div>
-        <p className="mt-2 text-xs text-foreground/50">
+        <p className="mt-2 text-xs text-muted">
           Los sectores y el seniority se aplican tras el fetch en el pipeline
           de limpieza (T013). La API se llama solo con países hasta que
           probemos la taxonomía real.
@@ -194,7 +194,7 @@ function FilterForm({ filters }: { filters: { countries: string[]; sectors: stri
           <select
             name="seniority"
             defaultValue={filters.seniority}
-            className="rounded-md border border-hairline bg-foreground/5 px-3 py-1.5 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+            className="rounded-md border border-hairline bg-background px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           >
             {VIBE_SENIORITY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -212,14 +212,14 @@ function FilterForm({ filters }: { filters: { countries: string[]; sectors: stri
             min={1}
             max={VIBE_MAX_LEADS_PER_FETCH}
             defaultValue={filters.limit}
-            className="rounded-md border border-hairline bg-foreground/5 px-3 py-1.5 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+            className="rounded-md border border-hairline bg-background px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           />
         </label>
       </div>
 
       <button
         type="submit"
-        className="rounded-md border border-accent/40 bg-accent/10 px-5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+        className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
       >
         Estimar (gratis)
       </button>
@@ -241,15 +241,15 @@ function ConfirmView({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-accent/30 bg-accent/5 p-6 text-sm">
+      <div className="rounded-lg border border-accent/30 bg-accent-soft p-6 text-sm">
         <p className="text-xs uppercase tracking-wider text-muted">Estimación</p>
         <p className="mt-2 text-3xl font-semibold text-foreground">
           {matches.toLocaleString("es-ES")} matches
         </p>
-        <p className="mt-1 text-foreground/60">
+        <p className="mt-1 text-foreground">
           {filters.countries.join(", ")} · sectores {filters.sectors.join(", ") || "—"} · seniority {filters.seniority} · límite {filters.limit}
         </p>
-        <div className="mt-5 space-y-1 text-foreground/70">
+        <div className="mt-5 space-y-1 text-foreground">
           <p className="text-xs uppercase tracking-wider text-muted">Desglose de coste</p>
           <div className="grid max-w-md grid-cols-[1fr_auto] gap-x-6 text-sm">
             <span>Fetch ({filters.limit} × {VIBE_CREDITS_PER_LEAD_FETCH} cr/lead)</span>
@@ -259,7 +259,7 @@ function ConfirmView({
             <span className="border-t border-hairline pt-1 font-medium text-foreground">Total estimado</span>
             <span className="border-t border-hairline pt-1 text-right font-semibold tabular-nums text-foreground">{cost.total} cr</span>
           </div>
-          <p className="pt-2 text-xs text-foreground/40">
+          <p className="pt-2 text-xs text-muted">
             Coste orientativo; el descuento real lo fija Vibe. El enrich cubre
             solo los supervivientes tras el cleanup (dedupe empresa/cargo).
             La heurística se irá calibrando con los primeros fetches reales.
@@ -268,7 +268,7 @@ function ConfirmView({
       </div>
 
       {overCap && (
-        <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+        <div className="rounded-md border border-amber-400 bg-amber-100 px-4 py-3 text-sm text-amber-900">
           El coste estimado ({cost.total} créditos) supera el cap por defecto
           de {VIBE_MAX_CREDITS_PER_FETCH}. Marca la casilla para confirmar
           explícitamente.
@@ -287,11 +287,11 @@ function ConfirmView({
         <input type="hidden" name="limit" value={String(filters.limit)} />
 
         {overCap && (
-          <label className="flex items-center gap-2 text-sm text-yellow-200">
+          <label className="flex items-center gap-2 text-sm text-amber-900">
             <input
               type="checkbox"
               name="acknowledge_cap"
-              className="h-4 w-4 rounded border-hairline bg-foreground/5 text-yellow-400 focus:ring-1 focus:ring-yellow-400/40"
+              className="h-4 w-4 rounded border-amber-400 bg-background text-amber-600 focus:ring-1 focus:ring-amber-400/40"
             />
             Entiendo que el coste supera el cap; confirmar y ejecutar.
           </label>
@@ -300,13 +300,13 @@ function ConfirmView({
         <div className="flex gap-3">
           <button
             type="submit"
-            className="rounded-md border border-accent/40 bg-accent/10 px-5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+            className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
             Ejecutar y guardar en Radar
           </button>
           <Link
             href="/radar/vibe"
-            className="rounded-md border border-hairline px-4 py-2 text-sm text-foreground/70 transition-colors hover:border-accent/40 hover:text-foreground"
+            className="rounded-md border border-hairline bg-background px-4 py-2 text-sm text-foreground transition-colors hover:border-foreground/40"
           >
             Reestimar con otros filtros
           </Link>

@@ -76,6 +76,7 @@ Los dos orígenes de leads (outbound de OUTPILOT + inbound del SEO de studio) co
 | **Auth** | **Supabase Auth Google OAuth + allowlist de emails (Pere; ampliable con un INSERT si algún día operan OUTPILOT). Sin signup público.** | **Simplificado. R2: allowlist reducida a Pere (Eli y María operan Twenty, no OUTPILOT).** |
 | LinkedIn | — | **FUERA de v2.1** (interfaz preservada) |
 | Stripe / planes / quotas | — | **FUERA de v2.1** |
+| **Tema** | **Umania 2026: fondo blanco `#FFFFFF`, superficie `#F5F5F4`, hairline `#E5E5E3`, texto `#0D0D0D`, muted `#6B6B6B`, acento rojo `#C0392B` (hover `#A93226`), fondo activo `#FBEAE8`. Cormorant Garamond 600 para titulares + logotipo sidebar, DM Sans 400/500/600 para cuerpo. Badges neutros salvo EN_RADAR (rojo suave) y REVIEW / NURTURING (ámbar).** | **R2 (T010 rebrand, septiembre 2026): sustituye al Deep Space + teal + Syne/Space Grotesk del T010 original tras el cambio de identidad de Umania.** |
 
 Nota Twenty: se despliega con su propio docker-compose en Railway (imagen `twentycrm/twenty`). Su Postgres y su Redis son internos al deployment de Twenty y no tocan nuestro código — no viola la lección anti-Redis de v1 porque no lo operamos nosotros a nivel de código, solo como contenedor. Alternativa si Railway da fricción: Twenty Cloud de pago (decisión T031, gate de 1 día máximo).
 
@@ -241,7 +242,7 @@ outpilot-v2/
 - **T007** Wrapper `lib/ai/claude.ts` con routing por tarea + registro en `api_costs`
 - **T008** Migraciones 002 (leads) y 006 (events, api_costs, twenty_sync) + RLS + test aislamiento
 - **T009** Lint rule: queries en `/jobs/**` requieren `.eq('tenant_id', ...)` + CI GitHub Actions
-- **T010** Layout dashboard (tema #13131F / #00E5A0, Syne + Space Grotesk)
+- **T010** Layout dashboard (tema Umania 2026 — ver §2 fila "Tema"; el theme #13131F/#00E5A0 + Syne/Space Grotesk original quedó sustituido por el rebrand de septiembre 2026)
 
 ### Fase 1 — Nova (2 → 10 ago)
 - **T011** Migración 003 (channel_accounts, touchpoints) + RLS

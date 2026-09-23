@@ -27,7 +27,7 @@ export function LoginButton() {
       type="button"
       onClick={handleLogin}
       disabled={pending}
-      className="rounded-md border border-accent/40 bg-accent/10 px-5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
     >
       {pending ? "Redirigiendo…" : "Entrar con Google"}
     </button>

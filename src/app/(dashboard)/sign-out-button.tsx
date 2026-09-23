@@ -21,7 +21,7 @@ export function SignOutButton() {
       type="button"
       onClick={handleSignOut}
       disabled={pending}
-      className="rounded-md border border-hairline px-3 py-1.5 text-xs text-foreground/70 transition-colors hover:border-accent/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-md border border-hairline px-3 py-1.5 text-xs text-foreground/70 transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
     >
       {pending ? "Cerrando…" : "Cerrar sesión"}
     </button>

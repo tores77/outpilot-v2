@@ -1,17 +1,21 @@
 @import "tailwindcss";
 
-/* Umania theme tokens (Tailwind v4 @theme). These generate the utility
-   classes bg-background / text-foreground / text-accent / etc, and set
-   font-sans / font-display as the default families. */
+/* Umania theme tokens (Tailwind v4 @theme) — brand refresh septiembre 2026.
+   Sustituye al Deep Space + teal de T010 por la identidad Umania 2026:
+   fondo blanco, tipografía editorial (Cormorant Garamond) para titulares
+   y DM Sans para el cuerpo, acento rojo #C0392B. */
 @theme {
-  --color-background: #13131f;
-  --color-foreground: #f5f5f7;
-  --color-accent: #00e5a0;
-  --color-muted: #6a6a7a;
-  --color-hairline: rgba(245, 245, 247, 0.06);
+  --color-background: #ffffff;
+  --color-foreground: #0d0d0d;
+  --color-surface: #f5f5f4;         /* superficies, filas alternas, hover suave */
+  --color-hairline: #e5e5e3;        /* bordes finos (antes rgba translúcido) */
+  --color-muted: #6b6b6b;
+  --color-accent: #c0392b;          /* rojo Umania — botones primarios, activos, enlaces */
+  --color-accent-hover: #a93226;    /* un punto más oscuro para hover */
+  --color-accent-soft: #fbeae8;     /* fondo del item activo del nav y estados EN_RADAR */
 
-  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), ui-serif, Georgia, "Times New Roman", serif;
 }
 
 body {
@@ -22,5 +26,6 @@ body {
 
 h1, h2, h3, h4 {
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
