@@ -46,6 +46,25 @@ Runtime real afectado: cero. Fase 2 arranca sin bloqueo. Revisar cuando el
 propio inngest publique una minor que rebaje la cadena OTEL, o cuando ESLint
 10 (major) sea la vía.
 
+### Version pin de la CLI de Supabase en CI
+
+La CLI de Supabase en CI va **fijada** (`supabase/setup-cli@v3` con
+`version: 2.109.1`), no `latest`. El paso `Regenerate types` genera
+`database.types.ts` a partir del schema vivo y el drift check compara
+contra lo commiteado — si la CLI cambia el formato del output (p. ej.
+2.109.1 añadió paréntesis en los helpers genéricos `Tables`,
+`TablesInsert`, `TablesUpdate`, `Enums`, `CompositeTypes`), el drift
+salta como falso positivo aunque el schema no haya cambiado.
+
+**Regla de mantenimiento:** cuando actualices la CLI local, sube la del
+CI a la misma versión en el mismo commit y regenera los tipos ahí
+mismo (`chore(types): regen with supabase CLI <version>`).
+
+**PAT (`SUPABASE_ACCESS_TOKEN`):** creado sin caducidad tras la rotación
+de 2026-09-23 (el anterior había caducado en el parón de 2 meses,
+disparó "Unauthorized" en el primer CI de Fase 2). Si se rota otra vez,
+actualizar `.env.local` y el secret de GitHub a la vez.
+
 ### Out-of-range dep bumps (sin fecha)
 
 Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa

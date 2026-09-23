@@ -54,7 +54,12 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
         with:
-          version: latest
+          # Pinned intencionadamente. `latest` provoca falsos positivos en
+          # el drift check cuando la CLI cambia el formato del output de
+          # `supabase gen types` (p. ej. 2.109.1 añadió paréntesis en los
+          # helpers genéricos). Ver BACKLOG "Version pin de la CLI de
+          # Supabase en CI".
+          version: 2.109.1
 
       # Regenerate database.types.ts against the live schema via the
       # Supabase Management API. If a migration was applied but the types
