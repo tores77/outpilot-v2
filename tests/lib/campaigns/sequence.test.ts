@@ -18,6 +18,13 @@ describe("sequenceFromTemplate", () => {
     expect(seq.steps[0].subject).toBe(t.steps[0].subject);
   });
 
+  it("copia openerFallback del template al sequence", () => {
+    const t = getIcpBySlug("industrial_premium_es")!;
+    const seq = sequenceFromTemplate(t);
+    expect(seq.openerFallback).toBe(t.openerFallback);
+    expect(seq.openerFallback.length).toBeGreaterThan(0);
+  });
+
   it("no muta el template", () => {
     const t = getIcpBySlug("industrial_premium_es")!;
     const originalStepCount = t.steps.length;
@@ -47,46 +54,53 @@ describe("sequenceSchema", () => {
     bodyHtml: "<p>{{firstName}}, texto de prueba.</p>",
   };
 
+  const baseValid = {
+    version: 1 as const,
+    templateSlug: "industrial_premium_es",
+    openerFallback: "Fallback con {{companyName}} dentro.",
+    steps: [validStep],
+  };
+
   it("acepta un sequence válido", () => {
-    const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "industrial_premium_es",
-      steps: [validStep],
-    });
+    const r = sequenceSchema.safeParse(baseValid);
     expect(r.success).toBe(true);
   });
 
   it("rechaza version distinta de 1", () => {
-    const r = sequenceSchema.safeParse({
-      version: 2,
-      templateSlug: "x",
-      steps: [validStep],
-    });
+    const r = sequenceSchema.safeParse({ ...baseValid, version: 2 });
     expect(r.success).toBe(false);
   });
 
   it("rechaza templateSlug vacío", () => {
-    const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "",
-      steps: [validStep],
-    });
+    const r = sequenceSchema.safeParse({ ...baseValid, templateSlug: "" });
     expect(r.success).toBe(false);
   });
 
-  it("rechaza steps vacío", () => {
+  it("rechaza openerFallback vacío", () => {
+    const r = sequenceSchema.safeParse({ ...baseValid, openerFallback: "" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rechaza openerFallback con variable no permitida", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
-      steps: [],
+      ...baseValid,
+      openerFallback: "Texto con {{invented}}",
     });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const messages = r.error.issues.map((i) => i.message).join(" | ");
+      expect(messages).toMatch(/invented/);
+    }
+  });
+
+  it("rechaza steps vacío", () => {
+    const r = sequenceSchema.safeParse({ ...baseValid, steps: [] });
     expect(r.success).toBe(false);
   });
 
   it("rechaza subject con variable no permitida", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
+      ...baseValid,
       steps: [{ ...validStep, subject: "Hola {{invented}}" }],
     });
     expect(r.success).toBe(false);
@@ -98,8 +112,7 @@ describe("sequenceSchema", () => {
 
   it("rechaza bodyHtml con variable no permitida", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
+      ...baseValid,
       steps: [{ ...validStep, bodyHtml: "<p>{{whatever}}</p>" }],
     });
     expect(r.success).toBe(false);
@@ -111,8 +124,7 @@ describe("sequenceSchema", () => {
 
   it("rechaza delayDays negativo", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
+      ...baseValid,
       steps: [{ ...validStep, delayDays: -1 }],
     });
     expect(r.success).toBe(false);
@@ -120,8 +132,7 @@ describe("sequenceSchema", () => {
 
   it("rechaza index 0 (positivo estricto)", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
+      ...baseValid,
       steps: [{ ...validStep, index: 0 }],
     });
     expect(r.success).toBe(false);
@@ -129,8 +140,7 @@ describe("sequenceSchema", () => {
 
   it("rechaza subject vacío", () => {
     const r = sequenceSchema.safeParse({
-      version: 1,
-      templateSlug: "x",
+      ...baseValid,
       steps: [{ ...validStep, subject: "" }],
     });
     expect(r.success).toBe(false);

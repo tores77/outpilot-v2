@@ -9,8 +9,9 @@ import { inngest } from "@/lib/inngest";
 import { healthcheck } from "@/jobs/healthcheck";
 import { novaVibeFetch } from "@/jobs/nova-vibe-fetch";
 import { novaScore } from "@/jobs/nova-score";
+import { lexPersonalize } from "@/jobs/lex-personalize";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [healthcheck, novaVibeFetch, novaScore],
+  functions: [healthcheck, novaVibeFetch, novaScore, lexPersonalize],
 });

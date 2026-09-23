@@ -93,6 +93,7 @@ export type Database = {
           campaign_id: string
           id: string
           lead_id: string
+          personalization: Json | null
           provider_contact_id: string | null
           provider_lead_id: string | null
           removed_at: string | null
@@ -103,6 +104,7 @@ export type Database = {
           campaign_id: string
           id?: string
           lead_id: string
+          personalization?: Json | null
           provider_contact_id?: string | null
           provider_lead_id?: string | null
           removed_at?: string | null
@@ -113,6 +115,7 @@ export type Database = {
           campaign_id?: string
           id?: string
           lead_id?: string
+          personalization?: Json | null
           provider_contact_id?: string | null
           provider_lead_id?: string | null
           removed_at?: string | null

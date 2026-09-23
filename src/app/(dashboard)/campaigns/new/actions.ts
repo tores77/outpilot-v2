@@ -53,6 +53,9 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
   const candidate: Sequence = {
     version: 1,
     templateSlug,
+    // openerFallback viene siempre del template — no es editable en el
+    // form de v1. Si en el futuro se edita, entra por FormData.
+    openerFallback: template.openerFallback,
     steps: stepsInput,
   };
 

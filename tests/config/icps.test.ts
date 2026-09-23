@@ -32,6 +32,28 @@ describe("ICPS catalog", () => {
     }
   });
 
+  it("todos los ICPs tienen openerFallback no vacío que valida variables", () => {
+    for (const t of ICPS) {
+      expect(t.openerFallback.length, `${t.slug}`).toBeGreaterThan(0);
+      const check = validateVariables(t.openerFallback);
+      expect(check.ok, `${t.slug} openerFallback`).toBe(true);
+    }
+  });
+
+  it("industrial_premium_es step 1 tiene {{opener}} y NO tiene la frase original que ahora es fallback", () => {
+    const t = getIcpBySlug("industrial_premium_es")!;
+    const step1 = t.steps[0];
+    expect(step1.bodyHtml).toContain("{{opener}}");
+    // La frase que sustituimos por {{opener}} ya no debe estar dura en el body.
+    expect(step1.bodyHtml).not.toContain(
+      "He estado viendo {{companyName}} y se nota el nivel del producto",
+    );
+    // Pero SÍ debe estar en openerFallback.
+    expect(t.openerFallback).toContain(
+      "He estado viendo {{companyName}} y se nota el nivel del producto",
+    );
+  });
+
   it("getIcpBySlug devuelve null si el slug no existe", () => {
     expect(getIcpBySlug("no_existe")).toBeNull();
     expect(getIcpBySlug("")).toBeNull();

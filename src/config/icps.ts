@@ -44,6 +44,10 @@ export type IcpTemplate = {
   slug: string;
   name: string;
   description: string;
+  // Frase(s) que Volt sustituye por {{opener}} cuando Lex devuelve
+  // personalization: "generic". Texto plano (sin HTML): va dentro
+  // del <p>{{opener}}</p> del step 1 al renderizar.
+  openerFallback: string;
   steps: readonly IcpStep[];
 };
 
@@ -53,12 +57,19 @@ export type IcpTemplate = {
 
 const industrialPremiumEs_step1 = `
 <p>Hola {{firstName}},</p>
-<p>He estado viendo {{companyName}} y se nota el nivel del producto que tenéis. Cuando uno compite con italianos y franceses en vuestra categoría, eso solo se consigue con años de oficio detrás.</p>
+<p>{{opener}}</p>
 <p>Pero he visitado vuestra web y os va a costar mucho convencer a un comprador internacional con la web actual. Está pidiendo a gritos un nivel acorde al producto.<br>Acabamos de entregar la web de Our Moment Charter (Mallorca) con un stack que combina Three.js, scroll cinematográfico y un agente IA embebido que cualifica leads 24/7.<br>La inversión equivale a ~0,3% del revenue anual de empresas como la vuestra.</p>
 <p>¿20 minutos esta semana para enseñarte cómo quedaría algo así para {{companyName}}?</p>
 <p><a href="${BRAND.CALENDLY_URL}">Calendly: Reservar 20 minutos</a><br>Pau · Umania Labs<br><a href="${BRAND.STUDIO_URL}">umanialabs.com</a></p>
 <p>{{signature}}</p>
 `.trim();
+
+// Fallback text que sustituye {{opener}} si Lex devuelve
+// personalization: "generic". Reproduce la frase original del paso 1
+// para que el email se lea completo sin depender de la IA. Puede usar
+// las mismas variables permitidas que el resto.
+const industrialPremiumEs_openerFallback =
+  "He estado viendo {{companyName}} y se nota el nivel del producto que tenéis. Cuando uno compite con italianos y franceses en vuestra categoría, eso solo se consigue con años de oficio detrás.";
 
 const industrialPremiumEs_step2 = `
 <p>{{firstName}},</p>
@@ -85,6 +96,7 @@ const industrialPremiumEs: IcpTemplate = {
   name: "Industrial Premium ES",
   description:
     "Fabricantes industriales españoles con producto premium que compiten con italianos y franceses en export. Web actual como cuello de botella comercial.",
+  openerFallback: industrialPremiumEs_openerFallback,
   steps: [
     {
       index: 1,

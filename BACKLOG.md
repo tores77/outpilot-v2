@@ -97,6 +97,31 @@ Pendiente para Fase 3 (T027-T029):
 Sin decisión ahora bloquea T027 lo justo: Echo puede leer el payload
 tal cual mientras la retención se define en Fase 3.
 
+### Normalizar saltos de línea en `sequence.steps[].bodyHtml`
+
+Al aplicar `t022_smoke50_opener.sql` sobre la campaña "Industrial
+Premium ES · Smoke 50" observamos que el `bodyHtml` guardado en BD
+mezcla `\r\n` y `\n` (probable normalización del textarea del form
+por navegador/OS). El script se defendió con dos `replace()` pero es
+señal de que valdría la pena normalizar a `\n` en el schema Zod de
+`src/lib/campaigns/sequence.ts` — un `.transform(v => v.replace(/\r\n/g, "\n"))`
+sobre `subject` y `bodyHtml` en el momento del `safeParse` del server
+action. Prevendría que futuros scripts de patch tengan que preocuparse
+por dos variantes.
+
+Barato de implementar; no bloquea nada. Anotar por si un futuro
+script de patch se pega con lo mismo.
+
+### Robots.txt granular en Lex website fetcher
+
+El parser de `src/lib/lex/website.ts` (T022) solo detecta blanket
+disallow (`Disallow: /` bajo `User-agent: *`, `outpilot` o `umania`).
+Reglas por path (`Disallow: /private`) NO se respetan. En T022 solo
+pedimos la home del lead, así que en la práctica no importa; anotar
+por si alguien reutiliza el fetcher para páginas profundas. Si toca:
+implementar el matcher del RFC 9309 o pegar un package pequeño como
+`robots-parser`.
+
 ### Out-of-range dep bumps (sin fecha)
 
 Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa

@@ -47,6 +47,16 @@ export const sequenceStepSchema = z.object({
 export const sequenceSchema = z.object({
   version: z.literal(1),
   templateSlug: z.string().min(1),
+  // Texto plano (sin HTML) que Volt sustituye por {{opener}} cuando
+  // Lex devuelve personalization: "generic". Regla T022: NUNCA se
+  // sustituye por string vacío — el email debe leerse completo.
+  openerFallback: z
+    .string()
+    .min(1, "openerFallback requerido")
+    .superRefine((value, ctx) => {
+      const result = variableCheck("openerFallback")(value);
+      if (result !== true) ctx.addIssue({ code: "custom", message: result.message });
+    }),
   steps: z.array(sequenceStepSchema).min(1),
 });
 
@@ -61,6 +71,7 @@ export function sequenceFromTemplate(template: IcpTemplate): Sequence {
   return {
     version: 1,
     templateSlug: template.slug,
+    openerFallback: template.openerFallback,
     steps: template.steps.map((s) => ({
       index: s.index,
       delayDays: s.delayDays,
