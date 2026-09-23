@@ -97,32 +97,6 @@ Pendiente para Fase 3 (T027-T029):
 Sin decisión ahora bloquea T027 lo justo: Echo puede leer el payload
 tal cual mientras la retención se define en Fase 3.
 
-### Inngest auto-sync tras deploy — CAUSA IDENTIFICADA, en verificación
-
-**Síntoma (2026-09-23):** los deploys de la sesión de arranque de Fase 2
-(commits `809e913` → `8b86250`) no dispararon el auto-sync de Inngest.
-Resync manual funcionaba, auto-sync no.
-
-**Causa (identificada por Pere en la config de la integración):**
-**Vercel Deployment Protection** bloqueaba el sync. La integración de
-Inngest hace la sincronización contra la URL única del deployment, que
-está protegida por Vercel — la request se rechaza en silencio (Inngest
-no reintenta con la URL de producción).
-
-**Fix aplicado por Pere:**
-- Configurado el "Deployment protection key" (Protection Bypass for
-  Automation de Vercel) dentro de la integración de Inngest.
-- Añadido el dominio de producción `outpilot-v2-six.vercel.app`.
-
-**Verificación pendiente:** el próximo deploy con funciones nuevas
-(previsiblemente T023 Volt) confirma que "Last synced at" se actualiza
-solo. Si es OK → cerrar esta entrada del BACKLOG y borrar el doc del
-fallback en `docs/inngest-autosync-fallback.md`.
-
-**Fallback GH Action:** sigue documentado en
-`docs/inngest-autosync-fallback.md`, sin activar. Queda como red de
-seguridad si el fix se rompe en el futuro.
-
 ### Out-of-range dep bumps (sin fecha)
 
 Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa

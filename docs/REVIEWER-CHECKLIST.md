@@ -82,6 +82,7 @@ Marcar solo lo que aplica. En el reporte del gate, incluir los puntos relevantes
 - [ ] Variables de entorno nuevas documentadas en `.env.example` y añadidas en Vercel (con redeploy: Vercel no aplica vars nuevas a deploys ya construidos).
 - [ ] Funciones nuevas de Inngest: pedir a Pere que confirme que aparecen sin Resync manual.
 - [ ] Tras un deploy con funciones Inngest nuevas, confirmar sync y versión de SDK en el panel.
+- [ ] Si un deploy no sincroniza, mirar Inngest → Apps → Unattached Syncs: ahí aparecen los intentos fallidos con la URL y el error. Vercel Deployment Protection bloquea integraciones que llaman a la URL única del deploy.
 - [ ] Versión de la CLI de Supabase igual en local y en CI; si cambia, subirla en ambos y regenerar tipos en el mismo commit.
 - [ ] Tokens y credenciales nuevos, sin caducidad o con la caducidad anotada.
 
