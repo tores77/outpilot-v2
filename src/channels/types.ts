@@ -81,6 +81,16 @@ export interface NormalizedEvent {
 //      ignorables (p. ej. tipos que aún no mapean a touchpoint_kind).
 //      Lanza si el payload es inválido o no reconocido — errores duros,
 //      no silencio.
+//
+//   4. Para providers cuyo secret viaja DENTRO del body del webhook (caso
+//      Lemlist: campo `secret` en el JSON), la ruta receptora (T025)
+//      DEBE (a) comparar el secret con el esperado usando comparación en
+//      tiempo constante (no `===`), y (b) ELIMINAR el campo del payload
+//      antes de pasarlo a parseWebhookEvent y antes de persistirlo en
+//      touchpoints.payload o en cualquier log/traza. El provider no puede
+//      confiar en que el caller lo haya hecho: si detecta un campo
+//      secret-like en `raw`, debe strippearlo defensivamente en
+//      NormalizedEvent.raw.
 export interface ChannelProvider {
   readonly id: ActiveProviderId
   readonly channel: ChannelKind
