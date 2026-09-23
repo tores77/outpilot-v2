@@ -87,6 +87,111 @@ export type Database = {
           },
         ]
       }
+      campaign_leads: {
+        Row: {
+          added_at: string
+          campaign_id: string
+          id: string
+          lead_id: string
+          provider_contact_id: string | null
+          provider_lead_id: string | null
+          removed_at: string | null
+          tenant_id: string
+        }
+        Insert: {
+          added_at?: string
+          campaign_id: string
+          id?: string
+          lead_id: string
+          provider_contact_id?: string | null
+          provider_lead_id?: string | null
+          removed_at?: string | null
+          tenant_id: string
+        }
+        Update: {
+          added_at?: string
+          campaign_id?: string
+          id?: string
+          lead_id?: string
+          provider_contact_id?: string | null
+          provider_lead_id?: string | null
+          removed_at?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_leads_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_leads_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_leads_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          channel: Database["public"]["Enums"]["channel_kind"]
+          created_at: string
+          icp_slug: string | null
+          id: string
+          name: string
+          provider: Database["public"]["Enums"]["channel_provider"]
+          provider_external_id: string | null
+          sequence: Json
+          status: Database["public"]["Enums"]["campaign_status"]
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel: Database["public"]["Enums"]["channel_kind"]
+          created_at?: string
+          icp_slug?: string | null
+          id?: string
+          name: string
+          provider: Database["public"]["Enums"]["channel_provider"]
+          provider_external_id?: string | null
+          sequence?: Json
+          status?: Database["public"]["Enums"]["campaign_status"]
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: Database["public"]["Enums"]["channel_kind"]
+          created_at?: string
+          icp_slug?: string | null
+          id?: string
+          name?: string
+          provider?: Database["public"]["Enums"]["channel_provider"]
+          provider_external_id?: string | null
+          sequence?: Json
+          status?: Database["public"]["Enums"]["campaign_status"]
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channel_accounts: {
         Row: {
           channel: Database["public"]["Enums"]["channel_kind"]
@@ -327,6 +432,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "touchpoints_campaign_id_fk"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "touchpoints_channel_account_id_fkey"
             columns: ["channel_account_id"]
             isOneToOne: false
@@ -405,6 +517,7 @@ export type Database = {
       current_user_tenant_id: { Args: never; Returns: string }
     }
     Enums: {
+      campaign_status: "draft" | "smoke_test" | "active" | "paused" | "done"
       channel_account_status: "active" | "paused" | "warming" | "disabled"
       channel_kind: "email"
       channel_provider: "lemlist"
@@ -563,6 +676,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      campaign_status: ["draft", "smoke_test", "active", "paused", "done"],
       channel_account_status: ["active", "paused", "warming", "disabled"],
       channel_kind: ["email"],
       channel_provider: ["lemlist"],
