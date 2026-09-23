@@ -63,30 +63,45 @@ async function probeUrl(url) {
   return { res, rawText };
 }
 
-// Attempt 1: GET /team/users
-let attempt = await probeUrl(`${BASE}/team/users`);
-if (attempt.res.status === 404) {
-  console.log("[probe:lemlist-mailboxes] /team/users 404; probando /users.");
-  attempt = await probeUrl(`${BASE}/users`);
+// Un 200 con content-type text/html significa que la ruta cae al SPA de
+// Lemlist y no existe como endpoint API. Tratamos eso igual que un 404.
+function looksLikeApiFail(attempt) {
+  if (!attempt.res.ok) return true;
+  const ct = attempt.res.headers.get("content-type") || "";
+  return !ct.includes("application/json");
 }
-if (attempt.res.status === 404) {
+
+// Ruta correcta descubierta en T018: GET /users/:id. El array de
+// mailboxes por user vive dentro del objeto user, no en un endpoint
+// separado. Cascada de fallbacks conservada por si Lemlist reorganiza.
+const team = await probeUrl(`${BASE}/team`);
+let attempt = team;
+
+try {
+  const teamJson = JSON.parse(team.rawText);
+  const userIds = Array.isArray(teamJson.userIds) ? teamJson.userIds : [];
   console.log(
-    "[probe:lemlist-mailboxes] /users tambien 404; intentando resolver via /team + iteracion de userIds.",
+    `[probe:lemlist-mailboxes] team tiene ${userIds.length} userIds. Leo el primero via /users/:id.`,
   );
-  const team = await probeUrl(`${BASE}/team`);
-  try {
-    const teamJson = JSON.parse(team.rawText);
-    const userIds = Array.isArray(teamJson.userIds) ? teamJson.userIds : [];
-    console.log(
-      `[probe:lemlist-mailboxes] team tiene ${userIds.length} userIds. Leo el primero.`,
-    );
-    if (userIds.length > 0) {
-      attempt = await probeUrl(`${BASE}/users/${userIds[0]}`);
+  if (userIds.length > 0) {
+    attempt = await probeUrl(`${BASE}/users/${userIds[0]}`);
+  }
+} catch (err) {
+  console.error(
+    `[probe:lemlist-mailboxes] no pude parsear team para userIds: ${err instanceof Error ? err.message : String(err)}`,
+  );
+}
+
+if (looksLikeApiFail(attempt)) {
+  console.log(
+    "[probe:lemlist-mailboxes] /users/:id no devolvio JSON; probando /team/users y /users como fallback historico.",
+  );
+  for (const url of [`${BASE}/team/users`, `${BASE}/users`]) {
+    const next = await probeUrl(url);
+    if (!looksLikeApiFail(next)) {
+      attempt = next;
+      break;
     }
-  } catch (err) {
-    console.error(
-      `[probe:lemlist-mailboxes] no pude parsear team para userIds: ${err instanceof Error ? err.message : String(err)}`,
-    );
   }
 }
 
