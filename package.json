@@ -15,6 +15,9 @@
     "probe:vibe-round3": "node --env-file-if-exists=.env.local scripts/probe-vibe-round3.mjs",
     "probe:vibe-enrich-first": "node --env-file-if-exists=.env.local scripts/probe-vibe-enrich-first.mjs",
     "probe:lemlist-auth": "node --env-file-if-exists=.env.local scripts/probe-lemlist-auth.mjs",
+    "probe:lemlist-mailboxes": "node --env-file-if-exists=.env.local scripts/probe-lemlist-mailboxes.mjs",
+    "probe:lemlist-campaigns": "node --env-file-if-exists=.env.local scripts/probe-lemlist-campaigns.mjs",
+    "probe:lemlist-activities": "node --env-file-if-exists=.env.local scripts/probe-lemlist-activities.mjs",
     "test": "vitest run"
   },
   "dependencies": {

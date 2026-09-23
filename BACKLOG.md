@@ -65,6 +65,17 @@ de 2026-09-23 (el anterior había caducado en el parón de 2 meses,
 disparó "Unauthorized" en el primer CI de Fase 2). Si se rota otra vez,
 actualizar `.env.local` y el secret de GitHub a la vez.
 
+### `email_delivered` muerto en el enum `touchpoint_kind`
+
+Confirmado en T018 (probe de auth + doc oficial): Lemlist no emite un
+evento `delivered`. El valor `email_delivered` en el enum de la
+migración 003 queda como dead value. Coste de mantenerlo: cero. No
+ejecutar `ALTER TYPE ... DROP VALUE` porque los enum drops en Postgres
+son costosos (bloqueo + reescritura de columnas dependientes) y no hay
+razón operativa. Si en el futuro entra otro provider (LinkedIn/Unipile,
+otra plataforma email) que sí emita `delivered`, el valor está listo
+sin migración.
+
 ### Out-of-range dep bumps (sin fecha)
 
 Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa
