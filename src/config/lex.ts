@@ -30,3 +30,11 @@ export const LEX_MAX_TOKENS = 400;
 // Versión del shape de campaign_leads.personalization. Bump si el
 // schema en response.ts cambia.
 export const LEX_PERSONALIZATION_VERSION = 1;
+
+// TTL para claims stuck en state='processing'. Un run que muere a
+// medias deja el lead marcado como processing sin escribir el resultado
+// final; tras este TTL, sweepStaleClaims lo devuelve a NULL para que
+// el siguiente trigger lo pueda reclamar. 10 min es holgado:
+// 2s/lead × 100 leads = ~200s, con margen 3×. Sin cron dedicado — el
+// sweep corre al principio de cada claim (opportunistic).
+export const LEX_STALE_CLAIM_MS = 10 * 60 * 1000;

@@ -2,8 +2,10 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 import { getIcpBySlug } from "@/config/icps";
-import { LEX_MAX_PER_TRIGGER } from "@/config/lex";
+import { LEX_MAX_PER_TRIGGER, LEX_STALE_CLAIM_MS } from "@/config/lex";
+import { countPending } from "@/lib/lex/claim";
 import { personalizeCampaignAction } from "./actions";
+import { PersonalizeButton } from "./personalize-button";
 
 type CampaignStatus = Database["public"]["Enums"]["campaign_status"];
 
@@ -46,6 +48,22 @@ export default async function CampaignsPage({
   const sp = await searchParams;
 
   const supabase = await createSupabaseServerClient();
+
+  // Necesitamos el tenant_id explícito para countPending (que también
+  // usa el job service_role); RLS filtra por JWT, pero countPending
+  // no asume RLS y añade .eq("tenant_id", ...).
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) throw new Error("Not authenticated");
+  const { data: allowed } = await supabase
+    .from("allowed_users")
+    .select("tenant_id")
+    .eq("email", user.email)
+    .maybeSingle();
+  if (!allowed) throw new Error("Not in allowlist");
+  const tenantId = allowed.tenant_id;
+
   const { data, error } = await supabase
     .from("campaigns")
     .select("id, name, status, icp_slug, sequence, created_at")
@@ -54,19 +72,21 @@ export default async function CampaignsPage({
 
   const campaigns: CampaignRow[] = (data ?? []) as CampaignRow[];
 
-  // Cuenta paralela de campaign_leads sin personalizar por campaña.
-  // Simple: N roundtrips concurrentes (Pere tiene ~pocas campañas).
-  // Si crece, mover a un RPC/GROUP BY.
-  const pendingCounts = new Map<string, number>();
+  // Counts por campaña: activePending (NULL + processing_stale) y
+  // activeProcessing (processing_active, dentro del TTL). Determina
+  // qué mostrar en el botón para evitar el bug de los 9 clicks.
+  const counts = new Map<
+    string,
+    { activePending: number; activeProcessing: number }
+  >();
   await Promise.all(
     campaigns.map(async (c) => {
-      const { count } = await supabase
-        .from("campaign_leads")
-        .select("id", { count: "exact", head: true })
-        .eq("campaign_id", c.id)
-        .is("personalization", null)
-        .is("removed_at", null);
-      pendingCounts.set(c.id, count ?? 0);
+      const result = await countPending(supabase, {
+        tenantId,
+        campaignId: c.id,
+        staleMs: LEX_STALE_CLAIM_MS,
+      });
+      counts.set(c.id, result);
     }),
   );
 
@@ -145,8 +165,9 @@ export default async function CampaignsPage({
               const icp = c.icp_slug ? getIcpBySlug(c.icp_slug) : null;
               const seq = c.sequence as { steps?: unknown } | null;
               const stepCount = Array.isArray(seq?.steps) ? seq.steps.length : 0;
-              const pending = pendingCounts.get(c.id) ?? 0;
-              const willProcess = Math.min(pending, LEX_MAX_PER_TRIGGER);
+              const { activePending, activeProcessing } =
+                counts.get(c.id) ?? { activePending: 0, activeProcessing: 0 };
+              const willProcess = Math.min(activePending, LEX_MAX_PER_TRIGGER);
               return (
                 <tr
                   key={c.id}
@@ -172,25 +193,29 @@ export default async function CampaignsPage({
                     {formatDate(c.created_at)}
                   </td>
                   <td className="px-4 py-3">
-                    {pending === 0 ? (
-                      <span className="text-xs text-muted">
-                        Sin pendientes
+                    {activeProcessing > 0 ? (
+                      // Job en vuelo: no dejamos volver a pulsar hasta
+                      // que termine (el humano ya no clica 9 veces).
+                      <span
+                        className="inline-block rounded-md border border-hairline bg-surface px-3 py-1 text-xs text-muted"
+                        title={`Lex está procesando ${activeProcessing} leads. Refresca cuando termine.`}
+                      >
+                        Procesando {activeProcessing}…
                       </span>
-                    ) : (
+                    ) : activePending > 0 ? (
                       <form action={personalizeCampaignAction}>
                         <input
                           type="hidden"
                           name="campaign_id"
                           value={c.id}
                         />
-                        <button
-                          type="submit"
-                          className="rounded-md border border-hairline bg-background px-3 py-1 text-xs text-foreground transition-colors hover:border-foreground/40"
-                          title={`Encola Lex sobre ${willProcess} campaign_leads sin personalizar. Restantes tras este batch: ${Math.max(0, pending - LEX_MAX_PER_TRIGGER)}.`}
-                        >
-                          Personalizar {willProcess} de {pending}
-                        </button>
+                        <PersonalizeButton
+                          label={`Personalizar ${willProcess} de ${activePending}`}
+                          title={`Encola Lex sobre ${willProcess} campaign_leads sin personalizar. Restantes tras este batch: ${Math.max(0, activePending - LEX_MAX_PER_TRIGGER)}.`}
+                        />
                       </form>
+                    ) : (
+                      <span className="text-xs text-muted">Sin pendientes</span>
                     )}
                   </td>
                 </tr>

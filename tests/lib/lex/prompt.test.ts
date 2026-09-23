@@ -50,6 +50,23 @@ describe("LEX_SYSTEM_PROMPT", () => {
     expect(LEX_SYSTEM_PROMPT).toMatch(/firstName/);
     expect(LEX_SYSTEM_PROMPT).toMatch(/companyName|company/);
   });
+
+  it("regla 8: prohíbe em-dash, comillas tipográficas, ellipsis Unicode y listas", () => {
+    // Explicit "NO uses" para cada tic detectado en producción.
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NO uses guion largo/i);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NO uses comillas tipográficas/i);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NO uses ellipsis/i);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NO uses listas ni bullets/i);
+  });
+
+  it("regla 9: opener solo observa, no fuerza puente con la propuesta", () => {
+    expect(LEX_SYSTEM_PROMPT).toMatch(/SOLO OBSERVA/i);
+    // Términos concretos que NO debe usar el opener (los tira el step 1
+    // del email más adelante):
+    expect(LEX_SYSTEM_PROMPT).toMatch(/web premium/);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/renovar la web/);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NO cierres proponiendo/i);
+  });
 });
 
 describe("buildLeadFieldMap", () => {

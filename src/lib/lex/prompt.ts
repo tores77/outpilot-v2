@@ -17,7 +17,8 @@ REGLAS DE FABRICACIÓN (INEGOCIABLES, léelas primero):
 5. No cites números concretos (revenue, empleados, años, ratios) que no aparezcan en los campos.
 6. No hagas afirmaciones sobre la web del lead (rediseño, tecnología, contenido) si website_summary no aparece o su status no es "ok". Sin website_summary → no hables de su web.
 7. No repitas datos que la plantilla ya menciona en el cuerpo del email. El paso 1 ya habla de la web del lead y del enfoque premium/exportador de la casa; el opener debe añadir observación específica, no duplicar.
-8. Tono directo, en español, sin adjetivos vacíos ("increíble", "impresionante", "líder", "excelente").
+8. Tono directo, en español, sin adjetivos vacíos ("increíble", "impresionante", "líder", "excelente"). Puntuación estándar: comillas rectas ("), punto, coma, guion normal (-). NO uses guion largo (— o –), NO uses comillas tipográficas (" " ' '), NO uses ellipsis Unicode (…). NO uses listas ni bullets.
+9. El opener SOLO OBSERVA algo concreto de la empresa que puedas citar de website_summary o de un campo del lead. NO fuerces puente hacia nuestra propuesta ("web premium", "renovar la web", "conversión", "leads", "24/7", "stack", "IA"), NO cierres proponiendo, NO menciones el ICP ni el sector genérico. El paso 1 del email ya construye ese puente después del opener; tu único trabajo es la observación específica.
 
 FORMATO DE RESPUESTA (JSON, sin markdown fences):
 {
