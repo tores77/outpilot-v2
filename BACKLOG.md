@@ -76,6 +76,57 @@ razón operativa. Si en el futuro entra otro provider (LinkedIn/Unipile,
 otra plataforma email) que sí emita `delivered`, el valor está listo
 sin migración.
 
+### Retención del contenido de replies en `touchpoints.payload`
+
+Decisión de T018: el provider de Lemlist strippea de `NormalizedEvent.raw`
+los campos de identidad (email, firstName, lastName, linkedinUrl,
+companyName…) EXCEPTO en `emailsReplied`, donde el `subject`/`body`/`text`
+de la respuesta entrante SÍ se conserva. Es lo que Echo (T027) clasificará
+en cubos.
+
+Pendiente para Fase 3 (T027-T029):
+
+- Cuánto tiempo se retiene el contenido de las respuestas en
+  `touchpoints.payload` sin fingerprinting/hashing.
+- Si tras la clasificación de Echo se persiste solo la etiqueta + un
+  resumen redactado, y el cuerpo original se purga o se archiva fuera
+  de BD.
+- Política diferente para leads que llegan a `CLIENTE` vs los que caen
+  a `PERDIDO`.
+
+Sin decisión ahora bloquea T027 lo justo: Echo puede leer el payload
+tal cual mientras la retención se define en Fase 3.
+
+### Inngest auto-sync tras deploy — investigación abierta
+
+**Síntoma (2026-09-23):** los deploys de la sesión de arranque de Fase 2
+(commits `809e913` → `8b86250`) no dispararon el auto-sync de Inngest.
+El panel siguió mostrando SDK 4.13 y las 3 funciones del cierre de Fase
+1 hasta que Pere hizo un Resync manual. El sync manual sí funcionó: SDK
+4.21.0, 3 funciones.
+
+**Causas probables** (por orden):
+
+1. **Proyecto no vinculado** a la integración de Inngest en Vercel
+   Marketplace. La integración instalada no es lo mismo que el proyecto
+   vinculado: hay que autorizar cada proyecto explícitamente. Pere ha
+   revisado hoy si estaba vinculado — pendiente de confirmar la
+   respuesta del bracket sin rellenar en el mensaje de gate.
+2. Cambio en env vars entre deploys (INNGEST_EVENT_KEY o
+   INNGEST_SIGNING_KEY) que rompiera la autenticación del webhook de
+   sync. Descartable si el Resync manual funciona sin tocar keys.
+3. Bug puntual en la integración en la ventana de los deploys.
+
+**Fallback si el vínculo estaba OK:** GitHub Action step tras el push a
+main que hace POST a `${VERCEL_URL}/api/inngest` con la firma de
+INNGEST_SIGNING_KEY para forzar el sync. La misma acción sirve como
+seguro para siempre.
+
+**Mientras se resuelve:** el checklist obliga a que cada deploy con
+funciones nuevas verifique el sync y la versión de SDK en el panel
+antes de considerar la tarea cerrada. Volt (T023) es el próximo que
+añade funciones — cerrar antes de ese deploy.
+
 ### Out-of-range dep bumps (sin fecha)
 
 Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa

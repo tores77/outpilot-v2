@@ -44,6 +44,7 @@ Marcar solo lo que aplica. En el reporte del gate, incluir los puntos relevantes
 - [ ] Field names, enums y shapes tomados de respuestas reales, nunca supuestos.
 - [ ] Timeouts, reintentos con backoff en 5xx/429 y fail-fast en otros 4xx.
 - [ ] Los probes se conservan en `scripts/` como registro del contrato.
+- [ ] Exploración inline hacia campos de contenido: truncado desde la primera ejecución, nunca como refinado posterior.
 
 ### Dinero y costes
 - [ ] APIs de pago siguen el patrón estimate (gratis) → confirmación con token → execute.
@@ -80,6 +81,7 @@ Marcar solo lo que aplica. En el reporte del gate, incluir los puntos relevantes
 ### Deploy y entorno
 - [ ] Variables de entorno nuevas documentadas en `.env.example` y añadidas en Vercel (con redeploy: Vercel no aplica vars nuevas a deploys ya construidos).
 - [ ] Funciones nuevas de Inngest: pedir a Pere que confirme que aparecen sin Resync manual.
+- [ ] Tras un deploy con funciones Inngest nuevas, confirmar sync y versión de SDK en el panel.
 - [ ] Versión de la CLI de Supabase igual en local y en CI; si cambia, subirla en ambos y regenerar tipos en el mismo commit.
 - [ ] Tokens y credenciales nuevos, sin caducidad o con la caducidad anotada.
 

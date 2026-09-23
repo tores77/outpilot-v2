@@ -172,7 +172,7 @@ RLS: patrón único `tenant_id = public.current_user_tenant_id()` en todas las t
 
 **Lex (PERSONALIZER)** — sin cambios: personalización pre-envío con haiku, fetch+cache de resumen de website del lead, regla anti-fabricación (si no hay datos → template genérico marcado, jamás inventar).
 
-**Volt (IGNITE)** — sin cambios de fondo: orquestación Inngest de secuencias email (ventanas M-X-J 9-11/15-17 Madrid, límites por mailbox, rotación), smoke test nativo 50 leads con evaluación a 48h.
+**Volt (IGNITE)** — sin cambios de fondo: orquestación Inngest de secuencias email (ventanas M-X-J 9-11/15-17 Madrid, límites por mailbox, rotación), smoke test nativo 50 leads con evaluación a 48h. **R2 (aclaración, T018): la rotación entre mailboxes y los límites diarios por mailbox se DELEGAN al provider (Lemlist expone `senderStrategy: "random"` nativo y `emailLimit` por mailbox). Volt fuerza las ventanas M-X-J 9-11/15-17 al crear la campaña vía `upsertCampaign` y no reimplementa rotación ni caps. Sage vigila la salud y pausa mailboxes fuera de rango (policy en `config/sage-defaults.ts`).**
 
 **Echo (INBOX)** — clasificación 5 cubos (interesado / pide info / objeción / derivación / no interesado) con haiku + few-shots, draft con sonnet en SUGERIR, webhook Calendly/Cal.com → `REUNION_AGENDADA` + anti-no-show 24h/2h. **Cambio:** al clasificar cualquier reply, dispara el sync a Twenty (§5).
 
