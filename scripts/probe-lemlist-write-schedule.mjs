@@ -1,33 +1,27 @@
 // OUTPILOT v2 — Lemlist schedule-protocol probe (T018)
 // -----------------------------------------------------------------------------
-// Descubre si Lemlist soporta DOS ventanas M-X-J (9-11 y 15-17) via dos
-// schedules asociados a una misma campana, o si el segundo reemplaza al
-// primero. Ejecuta:
+// Descubre si Lemlist soporta DOS ventanas M-X-J via schedules asociados a
+// una campana. Con salvaguarda: antes de PATCHear el Default schedule
+// auto-creado, compara su _id contra el que salio en el probe anterior
+// (cam_ZuDPsSs2e7m2ttX7N → scheduleIds=["skd_TkHddyqKQCW3qjCx9"]) para
+// distinguir schedules per-campana vs team-shared. Si es team-shared,
+// NO se PATCHea (dañaria otras campanas): en vez de eso se crean dos
+// nuevos y se asocian.
 //
-//   1.  POST /campaigns              crea campana draft (body minimo)
-//   2.  GET  /campaigns/:cid         STATE GATE (draft|paused)
-//   3.  GET  /campaigns/:cid/schedules  captura el "Default schedule"
-//                                      auto-creado por Lemlist
-//   4.  PATCH /schedules/:defaultId  window 1: Europe/Madrid, [2,3,4],
-//                                      09:00-11:00 (secondsToWait ya es
-//                                      1200 por default)
-//   5.  POST /schedules              window 2: Europe/Madrid, [2,3,4],
-//                                      15:00-17:00, secondsToWait 1200
-//   6.  POST /campaigns/:cid/schedules/:sid2  asocia window 2 a la
-//                                              campana
-//   7.  GET  /campaigns/:cid/schedules  verdict final: 1 o 2 items?
+// Rutas de ejecucion:
+//   Path A (per-campana, _id distinto): PATCH default → window 1, POST
+//                                        window 2, asociar. Verdict.
+//   Path B (team-shared, _id igual):    SKIP PATCH. POST window 1, POST
+//                                        window 2, asociar ambos. Verdict.
 //
-// NO llama a start/resume/schedule-launch. La campana no tendra leads.
-// Todos los _id (campana + schedules) se imprimen al final para que
-// Pere borre a mano.
-//
-// SEGURIDAD:
-// - Dry-run POR DEFECTO. Imprime plan + bodies y sale.
-// - Para ejecutar: EXECUTE=1 o --execute.
-// - Key redactada.
-// - Si el STATE GATE falla, aborta antes del PATCH/POST/asociacion.
+// NO llama a start/resume/launch. Campana sin leads. Todos los _id se
+// imprimen al final para borrado manual.
 
 const BASE = "https://api.lemlist.com/api";
+
+// Referencia del probe anterior. Si la campana nueva devuelve el MISMO
+// _id de Default schedule, los schedules son team-shared → NO PATCHear.
+const PREVIOUS_DEFAULT_SCHEDULE_ID = "skd_TkHddyqKQCW3qjCx9";
 
 const key = process.env.LEMLIST_API_KEY;
 if (!key || key.trim() === "") {
@@ -43,16 +37,13 @@ const shouldExecute =
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const campaignName = `PROBE-T018-SCHED-${timestamp}`;
 
-// Body minimo para crear la campana (aprendido del probe anterior: el
-// schedule embebido se ignora, asi que no lo incluimos).
 const createCampaignBody = {
   name: campaignName,
   senderStrategy: "random",
 };
 
-// PATCH parcial sobre el schedule auto-creado. Solo los campos que
-// queremos cambiar; el resto lo dejamos como Lemlist lo puso.
-const patchWindow1Body = {
+// Payloads reusables por ambas paths.
+const window1Fields = {
   name: "Volt morning 09-11 (M-X-J)",
   timezone: "Europe/Madrid",
   start: "09:00",
@@ -60,15 +51,21 @@ const patchWindow1Body = {
   weekdays: [2, 3, 4],
 };
 
-// POST del segundo schedule (ventana de tarde).
-const createWindow2Body = {
+const window2Fields = {
   name: "Volt afternoon 15-17 (M-X-J)",
   timezone: "Europe/Madrid",
   start: "15:00",
   end: "17:00",
   weekdays: [2, 3, 4],
-  secondsToWait: 1200,
 };
+
+// PATCH parcial (Path A). Sin secondsToWait (ya es 1200 en el default).
+const patchWindow1Body = { ...window1Fields };
+
+// POST completo (Path B para w1 y w2, o Path A para w2). Incluye
+// secondsToWait explicito.
+const createWindow1Body = { ...window1Fields, secondsToWait: 1200 };
+const createWindow2Body = { ...window2Fields, secondsToWait: 1200 };
 
 const SAFE_STATES = new Set(["draft", "paused"]);
 
@@ -76,48 +73,57 @@ const SAFE_STATES = new Set(["draft", "paused"]);
 
 const planned = [
   {
-    step: "1. Crear campana draft (POST /campaigns) — body minimo",
+    step: "1. POST /campaigns — crea campana draft (body minimo)",
     method: "POST",
     url: `${BASE}/campaigns`,
     body: createCampaignBody,
-    notes:
-      "Sin schedule embebido (aprendido: se ignora). Sin secuencia, sin leads.",
+    notes: "Sin schedule embebido (ya sabemos que se ignora).",
   },
   {
-    step: "2. GET /campaigns/:cid — STATE GATE",
+    step: "2. GET /campaigns/:cid — STATE GATE (draft|paused)",
     method: "GET",
     url: `${BASE}/campaigns/<CID>`,
     body: null,
-    notes: "status debe ser draft|paused. Si no, aborta antes de tocar schedules.",
+    notes: "Si status no es draft/paused, aborta antes de tocar schedules.",
   },
   {
-    step: "3. GET /campaigns/:cid/schedules — captura Default schedule",
+    step: "3. GET /campaigns/:cid/schedules — captura Default schedule + SAFEGUARD",
     method: "GET",
     url: `${BASE}/campaigns/<CID>/schedules`,
     body: null,
     notes:
-      "Espera 1 item (Default schedule auto-creado por Lemlist). Captura su _id.",
+      `Compara Default._id con ${PREVIOUS_DEFAULT_SCHEDULE_ID} (del probe anterior). ` +
+      "Si es DISTINTO → per-campana → Path A. Si es IGUAL → team-shared → Path B (skip PATCH).",
   },
   {
-    step: "4. PATCH /schedules/:defaultId — window 1 (09-11 M-X-J)",
+    step: "4A. [PATH A] PATCH /schedules/:defaultId — window 1 (solo si per-campana)",
     method: "PATCH",
     url: `${BASE}/schedules/<DEFAULT_SID>`,
     body: patchWindow1Body,
-    notes: "Cambia timezone, weekdays, start, end. Deja secondsToWait (ya 1200).",
+    notes: "SOLO se ejecuta si Path A. En Path B se salta para no danar otras campanas.",
   },
   {
-    step: "5. POST /schedules — window 2 (15-17 M-X-J)",
+    step: "4B. [PATH B] POST /schedules — window 1 (solo si team-shared)",
+    method: "POST",
+    url: `${BASE}/schedules`,
+    body: createWindow1Body,
+    notes: "SOLO se ejecuta si Path B. Crea la ventana 1 como schedule nuevo.",
+  },
+  {
+    step: "5. POST /schedules — window 2 (ambas paths)",
     method: "POST",
     url: `${BASE}/schedules`,
     body: createWindow2Body,
-    notes: "Crea el segundo schedule. Captura su _id.",
+    notes: "Crea el schedule de tarde en ambas paths.",
   },
   {
-    step: "6. POST /campaigns/:cid/schedules/:sid2 — asociar window 2",
+    step: "6. POST /campaigns/:cid/schedules/:sid — asociar (body vacio)",
     method: "POST",
-    url: `${BASE}/campaigns/<CID>/schedules/<SID2>`,
+    url: `${BASE}/campaigns/<CID>/schedules/<SID>`,
     body: null,
-    notes: "Body vacio. Une el segundo schedule a la campana.",
+    notes:
+      "Path A: asocia solo window 2 (la 1 ya esta por el PATCH sobre el default). " +
+      "Path B: asocia window 1 Y window 2.",
   },
   {
     step: "7. GET /campaigns/:cid/schedules — verdict final",
@@ -125,8 +131,8 @@ const planned = [
     url: `${BASE}/campaigns/<CID>/schedules`,
     body: null,
     notes:
-      "Si el array final tiene 2 items → dos ventanas conviven, spec preservada. " +
-      "Si tiene 1 → el segundo reemplazo al primero; hay que colapsar a 1 ventana + R2.",
+      "Path A: 2 items → dos ventanas conviven; 1 → colapsar. " +
+      "Path B: 3 items (default team + w1 + w2) → conviven; menos → colapsar.",
   },
 ];
 
@@ -135,6 +141,9 @@ console.log(
   `[probe:lemlist-write-schedule] mode: ${shouldExecute ? "EXECUTE" : "DRY-RUN"}`,
 );
 console.log(`[probe:lemlist-write-schedule] campaign name: ${campaignName}`);
+console.log(
+  `[probe:lemlist-write-schedule] previous Default _id ref: ${PREVIOUS_DEFAULT_SCHEDULE_ID}`,
+);
 console.log(
   `[probe:lemlist-write-schedule] safe states para continuar: ${[...SAFE_STATES].join(", ")}`,
 );
@@ -251,16 +260,14 @@ const detailParsed = safeParse(detail.text);
 const state = String(detailParsed?.status ?? "").toLowerCase();
 if (!SAFE_STATES.has(state)) {
   console.error("\n" + "=".repeat(72));
-  console.error(
-    `[abort] Estado inesperado "${state}". No procedo con schedules.`,
-  );
+  console.error(`[abort] Estado inesperado "${state}". No procedo con schedules.`);
   console.error(`[abort] campana: ${campaignId} (${campaignName}) — BORRAR A MANO.`);
   console.error("=".repeat(72));
   process.exit(1);
 }
 console.log(`\n[gate] estado "${state}" OK. Continuo.`);
 
-// ===== Step 3: captura Default schedule =====
+// ===== Step 3: captura Default schedule + SAFEGUARD =====
 
 const schedules0 = await doRequest(
   "3. GET /schedules — captura Default schedule",
@@ -282,50 +289,100 @@ if (!defaultScheduleId) {
   console.error(`[abort] campana: ${campaignId} — BORRAR A MANO.`);
   process.exit(1);
 }
-console.log(`\n[info] Default schedule id: ${defaultScheduleId}`);
 
-// ===== Step 4: PATCH window 1 =====
+const path =
+  defaultScheduleId === PREVIOUS_DEFAULT_SCHEDULE_ID
+    ? "team-shared"
+    : "per-campaign";
 
-const patched = await doRequest(
-  "4. PATCH /schedules/:defaultId — window 1",
-  "PATCH",
-  `${BASE}/schedules/${defaultScheduleId}`,
-  patchWindow1Body,
+console.log("");
+console.log(`[safeguard] Default schedule _id: ${defaultScheduleId}`);
+console.log(`[safeguard] Referencia probe anterior: ${PREVIOUS_DEFAULT_SCHEDULE_ID}`);
+console.log(
+  `[safeguard] → PATH ${path === "per-campaign" ? "A (per-campaign)" : "B (team-shared)"} — ` +
+    (path === "per-campaign"
+      ? "PATCH del default es seguro."
+      : "PATCH DAÑARIA otras campanas. SKIP PATCH; creamos dos schedules nuevos."),
 );
 
-// ===== Step 5: POST window 2 =====
+// ===== Path A: PATCH default → w1, POST → w2, associate w2 =====
+// ===== Path B: POST → w1, POST → w2, associate BOTH               =====
 
-const created2 = await doRequest(
+let firstScheduleId = null; // Solo se rellena en Path B (w1 nueva)
+let secondScheduleId = null;
+
+if (path === "per-campaign") {
+  // 4A. PATCH default → window 1
+  await doRequest(
+    "4A. PATCH /schedules/:defaultId — window 1 (PATH A)",
+    "PATCH",
+    `${BASE}/schedules/${defaultScheduleId}`,
+    patchWindow1Body,
+  );
+} else {
+  // 4B. POST → window 1 nueva
+  const w1Res = await doRequest(
+    "4B. POST /schedules — window 1 (PATH B, skip PATCH)",
+    "POST",
+    `${BASE}/schedules`,
+    createWindow1Body,
+  );
+  if (w1Res.res.ok) {
+    firstScheduleId = safeParse(w1Res.text)?._id ?? null;
+  }
+  if (!firstScheduleId) {
+    console.error(
+      "\n[warn] Path B: POST /schedules (w1) no devolvio _id. Continuo con w2 y GET final.",
+    );
+  }
+}
+
+// 5. POST → window 2 (ambas paths)
+const w2Res = await doRequest(
   "5. POST /schedules — window 2",
   "POST",
   `${BASE}/schedules`,
   createWindow2Body,
 );
-let secondScheduleId = null;
-if (created2.res.ok) {
-  const p = safeParse(created2.text);
-  secondScheduleId = p?._id ?? null;
+if (w2Res.res.ok) {
+  secondScheduleId = safeParse(w2Res.text)?._id ?? null;
 }
 if (!secondScheduleId) {
   console.error(
-    "\n[warn] step 5 no devolvio _id parseable. Sigo con el GET final para " +
-      "reportar el estado, pero no puedo asociar.",
+    "\n[warn] step 5: POST /schedules (w2) no devolvio _id. Sigo al GET final.",
   );
 }
 
-// ===== Step 6: asociar window 2 =====
-
-if (secondScheduleId) {
-  await doRequest(
-    "6. POST /campaigns/:cid/schedules/:sid2 — asociar",
-    "POST",
-    `${BASE}/campaigns/${campaignId}/schedules/${secondScheduleId}`,
-    null,
-  );
+// 6. asociar
+if (path === "per-campaign") {
+  if (secondScheduleId) {
+    await doRequest(
+      "6. POST /campaigns/:cid/schedules/:sid2 — asociar w2 (PATH A)",
+      "POST",
+      `${BASE}/campaigns/${campaignId}/schedules/${secondScheduleId}`,
+      null,
+    );
+  }
+} else {
+  if (firstScheduleId) {
+    await doRequest(
+      "6a. POST /campaigns/:cid/schedules/:sid1 — asociar w1 (PATH B)",
+      "POST",
+      `${BASE}/campaigns/${campaignId}/schedules/${firstScheduleId}`,
+      null,
+    );
+  }
+  if (secondScheduleId) {
+    await doRequest(
+      "6b. POST /campaigns/:cid/schedules/:sid2 — asociar w2 (PATH B)",
+      "POST",
+      `${BASE}/campaigns/${campaignId}/schedules/${secondScheduleId}`,
+      null,
+    );
+  }
 }
 
-// ===== Step 7: GET final — verdict =====
-
+// 7. GET final — verdict
 const schedulesFinal = await doRequest(
   "7. GET /campaigns/:cid/schedules — verdict final",
   "GET",
@@ -335,47 +392,60 @@ const schedulesFinal = await doRequest(
 const finalArr = safeParse(schedulesFinal.text);
 
 console.log("\n" + "-".repeat(72));
-console.log("[verdict] schedule multi-window handling:");
+console.log(`[verdict] path tomada: ${path.toUpperCase()}`);
 if (Array.isArray(finalArr)) {
-  console.log(`  items en /schedules tras asociar window 2: ${finalArr.length}`);
+  console.log(`  items en /schedules tras asociar: ${finalArr.length}`);
   for (const s of finalArr) {
     console.log(
-      `    _id=${s._id} name="${s.name}" tz=${s.timezone} weekdays=${JSON.stringify(s.weekdays)} start=${s.start} end=${s.end} secondsToWait=${s.secondsToWait}`,
+      `    _id=${s._id} name="${s.name}" tz=${s.timezone} wd=${JSON.stringify(s.weekdays)} start=${s.start} end=${s.end} secToWait=${s.secondsToWait}`,
     );
   }
-  if (finalArr.length >= 2) {
+  const expected = path === "per-campaign" ? 2 : 3;
+  if (finalArr.length >= expected) {
     console.log(
-      "  → RESULTADO: DOS SCHEDULES CONVIVEN. Spec §4 preservable — upsertCampaign " +
-        "crea y asocia dos schedules (9-11 y 15-17).",
-    );
-  } else if (finalArr.length === 1) {
-    console.log(
-      "  → RESULTADO: SOLO UN SCHEDULE tras asociar el segundo. El segundo " +
-        "reemplaza al primero. upsertCampaign colapsa a UNA ventana (9-17 " +
-        "M-X-J, secondsToWait 1200) y anadimos nota R2 en spec §4.",
+      `  → RESULTADO: schedules conviven (${finalArr.length} >= ${expected}). ` +
+        "Spec §4 preservable — upsertCampaign construira las ventanas via " +
+        (path === "per-campaign" ? "PATCH+POST" : "2 POST + associate") +
+        (path === "team-shared"
+          ? " y deja el default team-shared sin tocar."
+          : "."),
     );
   } else {
-    console.log("  → RESULTADO: 0 items — inesperado. Revisa a mano.");
+    console.log(
+      `  → RESULTADO: menos schedules de los esperados (${finalArr.length} < ${expected}). ` +
+        "Colapsar a UNA ventana 09:00-17:00 M-X-J con secondsToWait 1200 " +
+        "y anadir nota R2 en spec §4.",
+    );
   }
 } else {
   console.log("  final response no es array — inspeccion manual.");
 }
 console.log("-".repeat(72));
 
-// ===== Final: recap de _ids para borrado manual =====
+// ===== Recap para borrado manual =====
 
 console.log("\n" + "=".repeat(72));
 console.log("[probe:lemlist-write-schedule] DONE.");
 console.log(`  campana:            ${campaignId} (${campaignName})`);
-console.log(`  Default schedule:   ${defaultScheduleId}  (PATCHeado a window 1)`);
+console.log(`  Default schedule:   ${defaultScheduleId}  (${path === "per-campaign" ? "PATCHeado" : "NO tocado — team-shared"})`);
+if (firstScheduleId) {
+  console.log(`  Window 1 (nueva):   ${firstScheduleId}`);
+}
 if (secondScheduleId) {
-  console.log(`  Window 2 schedule:  ${secondScheduleId}`);
+  console.log(`  Window 2 (nueva):   ${secondScheduleId}`);
 }
 console.log("");
 console.log("BORRAR A MANO en https://app.lemlist.com:");
-console.log("  - la campana (arriba)");
+console.log("  - la campana");
 console.log(
-  "  - los schedules pueden desaparecer al borrar la campana, o quedar huerfanos.",
+  "  - los schedules pueden desaparecer al borrar la campana o quedar huerfanos.",
 );
-console.log("  Si quedan huerfanos: DELETE /schedules/:id via curl con la key.");
+console.log(
+  "  Si quedan huerfanos: DELETE /schedules/:id (curl con la key en Basic).",
+);
+if (path === "team-shared") {
+  console.log(
+    "  ⚠️ NO borres el Default team-shared: pertenece a la cuenta, lo usan otras campanas.",
+  );
+}
 console.log("=".repeat(72));
