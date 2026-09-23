@@ -14,6 +14,7 @@
     "probe:vibe-round2": "node --env-file-if-exists=.env.local scripts/probe-vibe-round2.mjs",
     "probe:vibe-round3": "node --env-file-if-exists=.env.local scripts/probe-vibe-round3.mjs",
     "probe:vibe-enrich-first": "node --env-file-if-exists=.env.local scripts/probe-vibe-enrich-first.mjs",
+    "probe:lemlist-auth": "node --env-file-if-exists=.env.local scripts/probe-lemlist-auth.mjs",
     "test": "vitest run"
   },
   "dependencies": {
