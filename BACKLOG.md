@@ -117,10 +117,13 @@ El panel siguió mostrando SDK 4.13 y las 3 funciones del cierre de Fase
    sync. Descartable si el Resync manual funciona sin tocar keys.
 3. Bug puntual en la integración en la ventana de los deploys.
 
-**Fallback si el vínculo estaba OK:** GitHub Action step tras el push a
-main que hace POST a `${VERCEL_URL}/api/inngest` con la firma de
-INNGEST_SIGNING_KEY para forzar el sync. La misma acción sirve como
-seguro para siempre.
+**Fallback si el vínculo estaba OK:** GitHub Action que dispara tras el
+CI verde en main y hace PUT a `${PRODUCTION_URL}/api/inngest` con
+reintentos, para forzar el sync. **YAML ya redactado** en
+`docs/inngest-autosync-fallback.md`; activación = copiar a
+`.github/workflows/inngest-sync.yml` + `PRODUCTION_URL` secret. No se
+activa preventivamente: si la causa era el vínculo, este fallback es
+ruido innecesario.
 
 **Mientras se resuelve:** el checklist obliga a que cada deploy con
 funciones nuevas verifique el sync y la versión de SDK en el panel

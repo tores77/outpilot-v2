@@ -18,6 +18,7 @@
     "probe:lemlist-mailboxes": "node --env-file-if-exists=.env.local scripts/probe-lemlist-mailboxes.mjs",
     "probe:lemlist-campaigns": "node --env-file-if-exists=.env.local scripts/probe-lemlist-campaigns.mjs",
     "probe:lemlist-activities": "node --env-file-if-exists=.env.local scripts/probe-lemlist-activities.mjs",
+    "probe:lemlist-write": "node --env-file-if-exists=.env.local scripts/probe-lemlist-write.mjs",
     "test": "vitest run"
   },
   "dependencies": {
