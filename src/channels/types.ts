@@ -43,6 +43,17 @@ export interface AddLeadInput {
   personalization: Record<string, string>
 }
 
+export interface AddLeadResult {
+  // Id del lead en el provider (Lemlist: `lea_...`). Undefined si el lead
+  // ya existia y el provider no devuelve id en el body del error.
+  providerLeadId?: string
+  // Id del contacto cross-campana del provider (Lemlist: `ctc_...`).
+  // Se preserva por si T025 lo necesita para cruzar eventos de webhook
+  // que llegan por contacto en vez de por campana. Undefined si el
+  // provider no lo expone.
+  providerContactId?: string
+}
+
 export interface NormalizedEvent {
   // Idempotencia. Cae contra el UNIQUE parcial de touchpoints
   // (migración 003): (tenant_id, channel_account_id, provider_event_id)
@@ -95,7 +106,7 @@ export interface ChannelProvider {
   readonly id: ActiveProviderId
   readonly channel: ChannelKind
   upsertCampaign(input: CampaignSpec): Promise<CampaignRef>
-  addLead(input: AddLeadInput): Promise<void>
+  addLead(input: AddLeadInput): Promise<AddLeadResult>
   parseWebhookEvent(
     rawBody: string,
     headers: Record<string, string>,

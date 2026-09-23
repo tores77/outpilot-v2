@@ -20,7 +20,7 @@ function makeMockProvider(
       return { externalId: "camp-mock-1" };
     },
     async addLead() {
-      // noop
+      return {};
     },
     parseWebhookEvent(): NormalizedEvent | null {
       return null;

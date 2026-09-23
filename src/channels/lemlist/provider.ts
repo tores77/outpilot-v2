@@ -13,6 +13,7 @@
 import type {
   ActiveProviderId,
   AddLeadInput,
+  AddLeadResult,
   CampaignRef,
   CampaignSpec,
   ChannelKind,
@@ -23,7 +24,11 @@ import type {
 } from "@/channels/types";
 import type { LemlistClient } from "./client";
 import { LemlistApiError } from "./client";
-import { VOLT_DEFAULT_SCHEDULE } from "@/config/lemlist";
+import {
+  VOLT_ACTIVE_DAYS_PER_WEEK,
+  VOLT_DEFAULT_SCHEDULES,
+  type LemlistScheduleBody,
+} from "@/config/lemlist";
 
 // ===== Mapping de tipos de evento =====
 // De los observados en histórico real (T018) + los documentados en
@@ -106,20 +111,42 @@ function stripPII(input: unknown, preserveReplyContent: boolean): unknown {
 
 // ===== Payloads =====
 
+// Descubierto en el probe write-protocol de T018: el schedule embebido en
+// POST /campaigns se IGNORA en silencio (Lemlist crea un "Default schedule"
+// propio). Por eso el body de creacion es minimo — el schedule se aplica
+// via PATCH sobre el default + POST del segundo schedule + associate,
+// dentro de upsertCampaign.
 type LemlistCampaignCreatePayload = {
   name: string;
   senderStrategy: "random";
-  schedule: {
-    name: string;
-    timezone: string;
-    weekdays: number[];
-    windows: ReadonlyArray<{ start: string; end: string }>;
-    secondsToWait: number;
-  };
 };
 
+// Respuesta de POST /campaigns. Trae mucho mas (sequenceId, scheduleIds,
+// tracking flags, etc.) pero solo `_id` es contrato hoy. Ojo: incluye un
+// campo `state: "running"` que NO refleja el estado operativo — el estado
+// real (draft|paused|ended|...) vive en el `status` del detalle GET
+// /campaigns/:id. NO confundir state con status; en el probe la campana
+// nacia con state=running Y status=draft simultaneamente.
 type LemlistCampaignResponse = {
   _id: string;
+  scheduleIds?: string[];
+};
+
+// Item de /campaigns/:id/schedules — reducido al minimo que usamos.
+type LemlistScheduleItem = {
+  _id: string;
+};
+
+// Respuesta de POST /schedules o PATCH /schedules/:id.
+type LemlistScheduleResponse = {
+  _id: string;
+};
+
+// Respuesta de POST /campaigns/:id/leads/:email — trae mas campos pero
+// solo _id y contactId nos interesan (PII fuera).
+type LemlistAddLeadResponse = {
+  _id?: string; // lea_...
+  contactId?: string; // ctc_...
 };
 
 // Shape de una activity segun observado en T018 (campos criticos).
@@ -156,8 +183,11 @@ export function computeWeeklyCapacity(
   mailboxCount: number,
   dailyLimitPerMailbox: number,
 ): number {
-  const daysPerWeek = VOLT_DEFAULT_SCHEDULE.weekdays.length;
-  return Math.max(0, mailboxCount) * Math.max(0, dailyLimitPerMailbox) * daysPerWeek;
+  return (
+    Math.max(0, mailboxCount) *
+    Math.max(0, dailyLimitPerMailbox) *
+    VOLT_ACTIVE_DAYS_PER_WEEK
+  );
 }
 
 // ===== Provider =====
@@ -174,49 +204,113 @@ export function createLemlistEmailProvider(
   const id: ActiveProviderId = "lemlist";
   const channel: ChannelKind = "email";
 
+  /**
+   * Crea o actualiza una campana. Ojo con la asimetria por descubrimiento
+   * del probe write-protocol (T018):
+   *
+   * CREATE (input.externalId ausente) — flujo de 5 pasos:
+   *   1. POST /campaigns con body minimo (name + senderStrategy).
+   *   2. GET /campaigns/:cid/schedules → captura _id del "Default schedule"
+   *      auto-creado por Lemlist (Europe/Paris L-V 09:00-18:00).
+   *   3. PATCH /schedules/:defaultId con la ventana 1 (M-X-J 09-11 Madrid).
+   *   4. POST /schedules con la ventana 2 (M-X-J 15-17 Madrid).
+   *   5. POST /campaigns/:cid/schedules/:sid2 para asociar la ventana 2.
+   *
+   * El schedule embebido en POST /campaigns se IGNORA en silencio — por
+   * eso el body de creacion es minimo. Lemlist no expone multi-windows
+   * en un solo schedule; la spec §4 se preserva con dos schedules
+   * asociados a la misma campana (verificado en probe: ambos conviven).
+   *
+   * UPDATE (input.externalId presente) — solo PATCH /campaigns/:id con
+   * el name. NO reconciliamos schedules en update: la campana ya tiene
+   * sus dos ventanas de la creacion, y v2.1 no permite cambiarlas por
+   * UI (spec §4 fuente unica). Si esa asuncion cambia, extender aqui.
+   */
   async function upsertCampaign(input: CampaignSpec): Promise<CampaignRef> {
-    // Forzar schedule y rotacion desde el codigo — la config del provider
-    // es fuente unica (spec R2 §4 Volt).
-    const payload: LemlistCampaignCreatePayload = {
-      name: input.name,
-      senderStrategy: "random",
-      schedule: {
-        name: VOLT_DEFAULT_SCHEDULE.name,
-        timezone: VOLT_DEFAULT_SCHEDULE.timezone,
-        weekdays: VOLT_DEFAULT_SCHEDULE.weekdays,
-        windows: VOLT_DEFAULT_SCHEDULE.windows,
-        secondsToWait: VOLT_DEFAULT_SCHEDULE.secondsBetweenSends,
-      },
-    };
-
     if (input.externalId) {
       const updated = await client.patch<LemlistCampaignResponse>(
         `/campaigns/${encodeURIComponent(input.externalId)}`,
-        payload,
+        { name: input.name },
       );
-      return { externalId: updated._id ?? input.externalId };
+      return { externalId: updated?._id ?? input.externalId };
     }
 
-    const created = await client.post<LemlistCampaignResponse>("/campaigns", payload);
+    // === Step 1: crear campana ===
+    const createPayload: LemlistCampaignCreatePayload = {
+      name: input.name,
+      senderStrategy: "random",
+    };
+    const created = await client.post<LemlistCampaignResponse>(
+      "/campaigns",
+      createPayload,
+    );
     if (!created?._id) {
       throw new Error(
-        "LemlistEmailProvider.upsertCampaign: respuesta sin _id (contrato roto).",
+        "LemlistEmailProvider.upsertCampaign: POST /campaigns sin _id (contrato roto).",
       );
     }
-    return { externalId: created._id };
+    const campaignId = created._id;
+
+    // === Step 2: capturar el Default schedule auto-creado ===
+    const existingSchedules = await client.get<LemlistScheduleItem[]>(
+      `/campaigns/${encodeURIComponent(campaignId)}/schedules`,
+    );
+    const defaultScheduleId = Array.isArray(existingSchedules)
+      ? existingSchedules[0]?._id
+      : undefined;
+    if (!defaultScheduleId) {
+      throw new Error(
+        `LemlistEmailProvider.upsertCampaign: no encuentro Default schedule para ${campaignId}.`,
+      );
+    }
+
+    // === Step 3: PATCH del default con la ventana 1 ===
+    const [window1, window2] = VOLT_DEFAULT_SCHEDULES as readonly LemlistScheduleBody[];
+    await client.patch<LemlistScheduleResponse>(
+      `/schedules/${encodeURIComponent(defaultScheduleId)}`,
+      window1,
+    );
+
+    // === Step 4: POST del segundo schedule (ventana 2) ===
+    const window2Created = await client.post<LemlistScheduleResponse>(
+      "/schedules",
+      window2,
+    );
+    if (!window2Created?._id) {
+      throw new Error(
+        "LemlistEmailProvider.upsertCampaign: POST /schedules (window2) sin _id.",
+      );
+    }
+
+    // === Step 5: asociar la ventana 2 a la campana ===
+    await client.post(
+      `/campaigns/${encodeURIComponent(campaignId)}/schedules/${encodeURIComponent(window2Created._id)}`,
+      undefined,
+    );
+
+    return { externalId: campaignId };
   }
 
-  async function addLead(input: AddLeadInput): Promise<void> {
-    // Lemlist convention historica: POST /campaigns/:campaignId/leads/:email
-    // con body de variables de personalizacion. La API responde 200 con el
-    // lead nuevo, o 409/400 si ya existe. Tratamos "ya existe" como exito
-    // silencioso — contrato #1 de ChannelProvider (idempotencia).
+  async function addLead(input: AddLeadInput): Promise<AddLeadResult> {
+    // Lemlist: POST /campaigns/:campaignId/leads/:email con body de
+    // variables de personalizacion. Respuesta 200 con lead nuevo, o
+    // 400/409 con "Lead already in the campaign" si existe (verificado
+    // en el probe write-protocol). Duplicado → exito silencioso sin ids
+    // (contrato #1 de ChannelProvider — idempotencia).
     const path = `/campaigns/${encodeURIComponent(input.campaignExternalId)}/leads/${encodeURIComponent(input.leadEmail)}`;
     try {
-      await client.post(path, input.personalization);
+      const created = await client.post<LemlistAddLeadResponse>(
+        path,
+        input.personalization,
+      );
+      return {
+        providerLeadId: typeof created?._id === "string" ? created._id : undefined,
+        providerContactId:
+          typeof created?.contactId === "string" ? created.contactId : undefined,
+      };
     } catch (err) {
       if (err instanceof LemlistApiError && isAlreadyAddedError(err)) {
-        return;
+        return {};
       }
       throw err;
     }
