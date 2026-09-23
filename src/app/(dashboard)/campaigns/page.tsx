@@ -68,7 +68,7 @@ export default async function CampaignsPage({
       {sp.created && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Campaña creada en <code>draft</code>. Está lista para editar; el
           envío real llega con T023 (Volt orchestration).

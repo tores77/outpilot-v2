@@ -190,7 +190,7 @@ export default async function RadarPage({
       {sp.vibe_started === "1" && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Fetch de Vibe encolado. El job corre en Inngest; los leads
           aparecerán aquí en cuanto termine.
@@ -199,7 +199,7 @@ export default async function RadarPage({
       {sp.score_started === "1" && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Batch de scoring encolado. Refresca en unos segundos para ver
           los ICP scores y las transiciones a EN_RADAR.
@@ -209,7 +209,7 @@ export default async function RadarPage({
       {importFlash && (
         <div
           role="status"
-          className="rounded-md border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Importación completada: <strong>{importFlash.imported}</strong>{" "}
           añadidos, {importFlash.duplicates} duplicados en BD,{" "}

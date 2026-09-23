@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { ICPS, getIcpBySlug } from "@/config/icps";
 import { createCampaignAction } from "./actions";
+import { SubmitButton } from "./submit-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
   no_name: "Escribe un nombre para la campaña.",
   unknown_icp: "El ICP indicado no existe.",
+  duplicate_name: "Ya existe una campaña en draft con ese nombre para tu tenant. Cambia el nombre o abre la existente.",
   validation: "La secuencia no valida (mira el detalle).",
   insert: "El insert en la BD falló (mira el detalle).",
 };
@@ -172,12 +174,7 @@ function CampaignForm({
         <code>{"{{opener}}"}</code>. Cualquier otra hace fallar el submit.
       </p>
 
-      <button
-        type="submit"
-        className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-      >
-        Crear campaña en draft
-      </button>
+      <SubmitButton>Crear campaña en draft</SubmitButton>
     </form>
   );
 }

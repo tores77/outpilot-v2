@@ -80,6 +80,24 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!allowed) redirect("/login?error=access_denied");
 
+  // Red de seguridad contra doble submit (el botón client ya se
+  // deshabilita, pero un segundo enter en teclado antes de que Next
+  // marque el pending podría colarse). RLS ya filtra por tenant, pero
+  // acotamos explícito.
+  const { data: existing } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("tenant_id", allowed.tenant_id)
+    .eq("name", name)
+    .eq("status", "draft")
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    redirect(
+      `/campaigns/new?icp=${encodeURIComponent(templateSlug)}&error=duplicate_name`,
+    );
+  }
+
   const insert: CampaignInsert = {
     tenant_id: allowed.tenant_id,
     name,
