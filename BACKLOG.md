@@ -28,28 +28,32 @@ en ese camino no hay trabajo de modo ACT pendiente.
 
 ### Vigilancia patch Next 16 + ESLint (postcss / sharp / brace-expansion)
 
-`npm audit` reporta 16 high tras T012, todas transitivas de dev deps y de Next:
+**Estado 2026-09-23:** Plan A ejecutado en el chore de deps de arranque de
+Fase 2. `next` y `eslint-config-next` a 16.3.6 (in-range, no-major); resuelve
+la crítica de Next (unauth RCE Windows + AVIF Image Optimization RCE),
+postcss y sharp. Audit residual: 2 highs.
 
-- `postcss <=8.5.17` — 3 CVEs (XSS via `</style>`, arbitrary file read via
-  attacker-controlled `sourceMappingURL`, path traversal en source map
-  auto-loading GHSA-r28c-9q8g-f849). Cascadea desde `next`.
-- `sharp <0.35.0` — libvips vulns (CVE-2026-33327/33328/35590/35591). Cascadea
-  desde `next`.
-- `brace-expansion` (GHSA-mh99-v99m-4gvg, publicado 2026-07) — DoS por
-  consumo de memoria en patterns adversariales. Cascadea a `minimatch`,
-  `@eslint/*`, `eslint-plugin-*`, `eslint-config-next`, `glob`, `rimraf` y
-  `gaxios`/`gcp-metadata` (deps de Supabase CLI).
+- **brace-expansion (high, DoS)** — 3 caminos: (1) `eslint-config-next` →
+  typescript-eslint → minimatch@10 (dev), (2) `eslint` → minimatch@3 (dev),
+  (3) `inngest` → @opentelemetry/auto-instrumentations-node → gcp-metadata
+  → gaxios → rimraf → glob → minimatch (potencialmente runtime en servidor
+  si OTEL boota; superficie práctica nula porque nadie alimenta patterns
+  hostiles al `glob` interno de rimraf en init).
+- **js-yaml (high, quadratic CPU)** — `eslint` → @eslint/eslintrc (dev-only,
+  no toca runtime).
 
-`npm audit fix --force` regresa a `next@9.3.3`, inaceptable. Riesgo real en
-OUTPILOT: bajo (no procesamos CSS ni imágenes ni patterns de fuente externa).
+Runtime real afectado: cero. Fase 2 arranca sin bloqueo. Revisar cuando el
+propio inngest publique una minor que rebaje la cadena OTEL, o cuando ESLint
+10 (major) sea la vía.
 
-**Plan A (activo)**: `npm update next && npm update eslint eslint-config-next`
-cuando ambos publiquen patches. Ventana: hasta **2026-08-10** (cierre Fase 1).
+### Out-of-range dep bumps (sin fecha)
 
-**Plan B** (a evaluar el 2026-08-10 si Plan A no basta): `overrides` en
-`package.json` forzando `postcss@latest`, `sharp@^0.35.0` y
-`brace-expansion@^2.0.2`, con test manual de `next/image` (sharp tiene ABI
-específico) y de `npm run lint` (por si eslint-config-next se rompe).
+Fuera del rango del `chore(deps)` de arranque de Fase 2. Cada uno se evalúa
+cuando el trabajo lo demande, con test delante:
+
+- `@anthropic-ai/sdk 0.115 → 0.128` (revisar si en T022 Lex necesita algo de
+  la versión nueva).
+- `typescript 5 → 7`, `eslint 9 → 10`, `react 19.2.4 → 19.3`.
 
 ### Verificar pricing Anthropic antes de T036/producción
 
