@@ -27,6 +27,7 @@ import { LemlistApiError } from "./client";
 import {
   VOLT_ACTIVE_DAYS_PER_WEEK,
   VOLT_DEFAULT_SCHEDULES,
+  VOLT_SCHEDULE_DAILY_CAP,
   type LemlistScheduleBody,
 } from "@/config/lemlist";
 
@@ -172,22 +173,40 @@ type LemlistActivity = {
 };
 
 /**
- * Capacidad de envio semanal estimada para la UI de confirmacion
- * (T019/T021). Deliberadamente pura y testeable.
+ * Envios efectivos por dia para un mailbox: el minimo entre su
+ * emailLimit de Lemlist y el techo que imponen las ventanas del
+ * schedule Volt. Pura, testeable, sin efectos.
  *
- * mailboxCount: mailboxes con status 'OK' en la campana.
- * dailyLimitPerMailbox: emailLimit del mailbox en Lemlist.
- * Retorna emails por semana asumiendo el schedule Volt (3 dias M-X-J).
+ * Con el schedule actual (2 ventanas de 2h, secondsToWait 1200):
+ *   emailLimit 30 → min(30, 12) = 12
+ *   emailLimit  5 → min(5, 12)  = 5
+ *   emailLimit  0 → 0
+ *
+ * El techo por ventanas se recalcula desde VOLT_DEFAULT_SCHEDULES si
+ * cambia; esta funcion no lo cachea.
  */
-export function computeWeeklyCapacity(
-  mailboxCount: number,
-  dailyLimitPerMailbox: number,
-): number {
-  return (
-    Math.max(0, mailboxCount) *
-    Math.max(0, dailyLimitPerMailbox) *
-    VOLT_ACTIVE_DAYS_PER_WEEK
+export function effectiveDailySendsPerMailbox(emailLimit: number): number {
+  return Math.max(0, Math.min(emailLimit, VOLT_SCHEDULE_DAILY_CAP));
+}
+
+/**
+ * Capacidad de envio semanal estimada para la UI (T019/T021). SUMA por
+ * mailbox activo — NO usa un minimo comun. La spec de T019 exige que
+ * un mailbox con emailLimit menor no infle el total del resto.
+ *
+ * Recibe los `emailLimit` de los mailboxes con `status === 'OK'`.
+ * Devuelve emails/semana asumiendo M-X-J (VOLT_ACTIVE_DAYS_PER_WEEK).
+ *
+ * Fuente unica de la cifra que la UI muestra; el desglose visual usa
+ * `effectiveDailySendsPerMailbox` y `VOLT_SCHEDULE_DAILY_CAP` para
+ * anotar cuando el techo por ventanas es el dominante.
+ */
+export function computeWeeklyCapacity(emailLimits: readonly number[]): number {
+  const totalDaily = emailLimits.reduce(
+    (sum, limit) => sum + effectiveDailySendsPerMailbox(limit),
+    0,
   );
+  return totalDaily * VOLT_ACTIVE_DAYS_PER_WEEK;
 }
 
 // ===== Provider =====

@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   computeWeeklyCapacity,
   createLemlistEmailProvider,
+  effectiveDailySendsPerMailbox,
 } from "@/channels/lemlist/provider";
 import { LemlistApiError, type LemlistClient } from "@/channels/lemlist/client";
 import {
+  sendsPerDayFromSchedules,
   VOLT_ACTIVE_DAYS_PER_WEEK,
   VOLT_DEFAULT_SCHEDULES,
+  VOLT_SCHEDULE_DAILY_CAP,
 } from "@/config/lemlist";
 import {
   lemlistActivityBounced,
@@ -32,16 +35,93 @@ function makeMockClient(overrides: Partial<LemlistClient> = {}): LemlistClient {
   };
 }
 
-describe("computeWeeklyCapacity", () => {
-  it("mailboxes x limit x dias del schedule (M-X-J = 3)", () => {
-    expect(computeWeeklyCapacity(4, 30)).toBe(4 * 30 * VOLT_ACTIVE_DAYS_PER_WEEK);
-    expect(computeWeeklyCapacity(0, 30)).toBe(0);
-    expect(computeWeeklyCapacity(4, 0)).toBe(0);
+describe("sendsPerDayFromSchedules", () => {
+  it("VOLT_DEFAULT_SCHEDULES (2 ventanas de 2h, 1200s) = 12/dia", () => {
+    // 7200s/ventana / 1200s = 6; dos ventanas = 12.
+    expect(sendsPerDayFromSchedules(VOLT_DEFAULT_SCHEDULES)).toBe(12);
+    // Y la constante derivada debe coincidir.
+    expect(VOLT_SCHEDULE_DAILY_CAP).toBe(12);
   });
 
-  it("clamps a 0 con inputs negativos (defensivo)", () => {
-    expect(computeWeeklyCapacity(-2, 30)).toBe(0);
-    expect(computeWeeklyCapacity(4, -10)).toBe(0);
+  it("array vacio → 0", () => {
+    expect(sendsPerDayFromSchedules([])).toBe(0);
+  });
+
+  it("ventana de duracion cero → 0 (defensivo)", () => {
+    expect(
+      sendsPerDayFromSchedules([
+        {
+          name: "zero",
+          timezone: "Europe/Madrid",
+          start: "10:00",
+          end: "10:00",
+          weekdays: [2, 3, 4],
+          secondsToWait: 1200,
+        },
+      ]),
+    ).toBe(0);
+  });
+
+  it("secondsToWait <= 0 → salta esa ventana (evita div/0)", () => {
+    expect(
+      sendsPerDayFromSchedules([
+        {
+          name: "bad",
+          timezone: "Europe/Madrid",
+          start: "09:00",
+          end: "11:00",
+          weekdays: [2, 3, 4],
+          secondsToWait: 0,
+        },
+      ]),
+    ).toBe(0);
+  });
+});
+
+describe("effectiveDailySendsPerMailbox", () => {
+  it("caso del gate T019: emailLimit 30 con 4h totales de ventanas y 1200s → 12/dia", () => {
+    // El schedule por defecto son 4h totales (2 ventanas de 2h) con
+    // secondsToWait 1200. El cap por ventanas (12) es el dominante
+    // frente al emailLimit tipico de Lemlist (30).
+    expect(effectiveDailySendsPerMailbox(30)).toBe(12);
+    expect(effectiveDailySendsPerMailbox(30)).toBe(VOLT_SCHEDULE_DAILY_CAP);
+  });
+
+  it("emailLimit BAJO manda si es menor que el cap por ventanas", () => {
+    expect(effectiveDailySendsPerMailbox(5)).toBe(5);
+    expect(effectiveDailySendsPerMailbox(0)).toBe(0);
+  });
+
+  it("clamp a 0 con negativos", () => {
+    expect(effectiveDailySendsPerMailbox(-3)).toBe(0);
+  });
+});
+
+describe("computeWeeklyCapacity", () => {
+  it("caso concreto del gate T019: 4 mailboxes de 30 → 4*12*3 = 144/semana", () => {
+    // NO es 4*30*3=360. El cap por ventanas (12) sobre el emailLimit (30)
+    // deja 12 efectivos/dia por mailbox. Suma por mailbox × dias.
+    expect(computeWeeklyCapacity([30, 30, 30, 30])).toBe(144);
+    expect(144).toBe(4 * VOLT_SCHEDULE_DAILY_CAP * VOLT_ACTIVE_DAYS_PER_WEEK);
+  });
+
+  it("SUMA por mailbox, NO minimo comun (spec de Pere)", () => {
+    // Un mailbox con emailLimit 5 (bajo el cap por ventanas) NO tira
+    // el total al minimo comun. Cada mailbox aporta su effective.
+    // [30, 5]: 12 + 5 = 17 efectivos/dia. 17 * 3 = 51/semana.
+    expect(computeWeeklyCapacity([30, 5])).toBe(51);
+  });
+
+  it("array vacio → 0 (sin mailboxes activos)", () => {
+    expect(computeWeeklyCapacity([])).toBe(0);
+  });
+
+  it("mailbox con limite 0 no aporta", () => {
+    expect(computeWeeklyCapacity([30, 0, 30])).toBe(2 * 12 * VOLT_ACTIVE_DAYS_PER_WEEK);
+  });
+
+  it("clamp defensivo con negativos", () => {
+    expect(computeWeeklyCapacity([-10, 30])).toBe(12 * VOLT_ACTIVE_DAYS_PER_WEEK);
   });
 });
 
