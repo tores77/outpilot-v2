@@ -21,6 +21,7 @@
     "probe:lemlist-write": "node --env-file-if-exists=.env.local scripts/probe-lemlist-write.mjs",
     "probe:lemlist-write-schedule": "node --env-file-if-exists=.env.local scripts/probe-lemlist-write-schedule.mjs",
     "probe:lemlist-add-step": "node --env-file-if-exists=.env.local scripts/probe-lemlist-add-step.mjs",
+    "probe:volt-sync-preview": "node --env-file-if-exists=.env.local scripts/probe-volt-sync-preview.mjs",
     "test": "vitest run"
   },
   "dependencies": {

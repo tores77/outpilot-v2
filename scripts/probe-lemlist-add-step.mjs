@@ -249,7 +249,7 @@ const post2 = await doRequest(
   `${BASE}/sequences/${sequenceId}/steps`,
   candidateStepBody,
 );
-const post2Parsed = safeParse(post2.text);
+safeParse(post2.text); // parse defensivo; no lo consumimos (basta status)
 
 // 5. GET final para el veredicto.
 const seq2 = await doRequest(

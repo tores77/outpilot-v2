@@ -3,9 +3,16 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 import { getIcpBySlug } from "@/config/icps";
 import { LEX_MAX_PER_TRIGGER, LEX_STALE_CLAIM_MS } from "@/config/lex";
+import { VOLT_MAX_SYNC_PER_TRIGGER } from "@/config/volt";
 import { countPending } from "@/lib/lex/claim";
-import { personalizeCampaignAction } from "./actions";
+import { getVoltCounts } from "@/lib/volt/counts";
+import {
+  createLemlistCampaignAction,
+  personalizeCampaignAction,
+  syncLeadsToLemlistAction,
+} from "./actions";
 import { PersonalizeButton } from "./personalize-button";
+import { SyncButton } from "./sync-button";
 
 type CampaignStatus = Database["public"]["Enums"]["campaign_status"];
 
@@ -29,6 +36,9 @@ function formatDate(iso: string): string {
 type CampaignsSearchParams = {
   created?: string;
   personalization_started?: string;
+  volt_create_started?: string;
+  volt_sync_started?: string;
+  error?: string;
 };
 
 type CampaignRow = {
@@ -36,6 +46,7 @@ type CampaignRow = {
   name: string;
   status: CampaignStatus;
   icp_slug: string | null;
+  provider_external_id: string | null;
   sequence: unknown;
   created_at: string;
 };
@@ -49,9 +60,6 @@ export default async function CampaignsPage({
 
   const supabase = await createSupabaseServerClient();
 
-  // Necesitamos el tenant_id explícito para countPending (que también
-  // usa el job service_role); RLS filtra por JWT, pero countPending
-  // no asume RLS y añade .eq("tenant_id", ...).
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -66,29 +74,43 @@ export default async function CampaignsPage({
 
   const { data, error } = await supabase
     .from("campaigns")
-    .select("id, name, status, icp_slug, sequence, created_at")
+    .select(
+      "id, name, status, icp_slug, provider_external_id, sequence, created_at",
+    )
     .order("created_at", { ascending: false });
   if (error) throw error;
 
   const campaigns: CampaignRow[] = (data ?? []) as CampaignRow[];
 
-  // Counts por campaña: activePending (NULL + processing_stale) y
-  // activeProcessing (processing_active, dentro del TTL). Determina
-  // qué mostrar en el botón para evitar el bug de los 9 clicks.
-  const counts = new Map<
+  const lexCounts = new Map<
     string,
     { activePending: number; activeProcessing: number }
   >();
-  await Promise.all(
-    campaigns.map(async (c) => {
-      const result = await countPending(supabase, {
-        tenantId,
-        campaignId: c.id,
-        staleMs: LEX_STALE_CLAIM_MS,
-      });
-      counts.set(c.id, result);
+  const voltCounts = new Map<
+    string,
+    { syncable: number; pending_personalization: number; no_company: number }
+  >();
+  await Promise.all([
+    ...campaigns.map(async (c) => {
+      lexCounts.set(
+        c.id,
+        await countPending(supabase, {
+          tenantId,
+          campaignId: c.id,
+          staleMs: LEX_STALE_CLAIM_MS,
+        }),
+      );
     }),
-  );
+    ...campaigns.map(async (c) => {
+      voltCounts.set(
+        c.id,
+        await getVoltCounts(supabase, {
+          tenantId,
+          campaignId: c.id,
+        }),
+      );
+    }),
+  ]);
 
   return (
     <section className="space-y-6">
@@ -97,9 +119,8 @@ export default async function CampaignsPage({
           <h1 className="text-4xl">Campaigns</h1>
           <p className="mt-2 text-sm text-muted">
             Volt: builder de secuencias, orquestación Inngest con ventanas
-            M-X-J, smoke test nativo. Lex personaliza pre-envío. El
-            builder ya crea campañas en <code>draft</code>; el sync a
-            Lemlist llega en T023.
+            M-X-J, smoke test nativo. Lex personaliza pre-envío. Volt sync
+            crea la campaña en Lemlist (draft) y sube leads.
           </p>
         </div>
         <Link
@@ -116,7 +137,7 @@ export default async function CampaignsPage({
           className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Campaña creada en <code>draft</code>. Está lista para editar; el
-          envío real llega con T023 (Volt orchestration).
+          sync a Lemlist se dispara desde el botón &quot;Crear en Lemlist&quot;.
         </div>
       )}
 
@@ -126,8 +147,38 @@ export default async function CampaignsPage({
           className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
           Personalización encolada. Lex procesa hasta{" "}
-          <strong>{LEX_MAX_PER_TRIGGER}</strong> leads por trigger; refresca
-          en un minuto y vuelve a pulsar si quedan pendientes.
+          <strong>{LEX_MAX_PER_TRIGGER}</strong> leads por trigger.
+        </div>
+      )}
+
+      {sp.volt_create_started && (
+        <div
+          role="status"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
+        >
+          &quot;Crear en Lemlist&quot; encolado. Volt creará la campaña en
+          <code> draft</code>, configurará los dos schedules (M-X-J
+          09-11 / 15-17 Madrid) y subirá los steps del sequence.
+          Refresca en un minuto.
+        </div>
+      )}
+
+      {sp.volt_sync_started && (
+        <div
+          role="status"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
+        >
+          &quot;Sincronizar leads&quot; encolado. Volt sube hasta{" "}
+          <strong>{VOLT_MAX_SYNC_PER_TRIGGER}</strong> leads por trigger.
+        </div>
+      )}
+
+      {sp.error && (
+        <div
+          role="alert"
+          className="rounded-md border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent"
+        >
+          Error: <code>{sp.error}</code>
         </div>
       )}
 
@@ -141,13 +192,14 @@ export default async function CampaignsPage({
               <th className="px-4 py-3 font-medium">Steps</th>
               <th className="px-4 py-3 font-medium">Creada</th>
               <th className="px-4 py-3 font-medium">Personalización</th>
+              <th className="px-4 py-3 font-medium">Sync Lemlist</th>
             </tr>
           </thead>
           <tbody>
             {campaigns.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-4 py-10 text-center text-sm text-muted"
                 >
                   Aún no hay campañas. Crea la primera desde{" "}
@@ -165,9 +217,21 @@ export default async function CampaignsPage({
               const icp = c.icp_slug ? getIcpBySlug(c.icp_slug) : null;
               const seq = c.sequence as { steps?: unknown } | null;
               const stepCount = Array.isArray(seq?.steps) ? seq.steps.length : 0;
-              const { activePending, activeProcessing } =
-                counts.get(c.id) ?? { activePending: 0, activeProcessing: 0 };
+              const { activePending, activeProcessing } = lexCounts.get(c.id) ?? {
+                activePending: 0,
+                activeProcessing: 0,
+              };
               const willProcess = Math.min(activePending, LEX_MAX_PER_TRIGGER);
+
+              const voltC = voltCounts.get(c.id) ?? {
+                syncable: 0,
+                pending_personalization: 0,
+                no_company: 0,
+              };
+              const willSync = Math.min(voltC.syncable, VOLT_MAX_SYNC_PER_TRIGGER);
+
+              const isCreatedInLemlist = !!c.provider_external_id;
+
               return (
                 <tr
                   key={c.id}
@@ -194,28 +258,68 @@ export default async function CampaignsPage({
                   </td>
                   <td className="px-4 py-3">
                     {activeProcessing > 0 ? (
-                      // Job en vuelo: no dejamos volver a pulsar hasta
-                      // que termine (el humano ya no clica 9 veces).
                       <span
                         className="inline-block rounded-md border border-hairline bg-surface px-3 py-1 text-xs text-muted"
-                        title={`Lex está procesando ${activeProcessing} leads. Refresca cuando termine.`}
+                        title={`Lex está procesando ${activeProcessing} leads.`}
                       >
                         Procesando {activeProcessing}…
                       </span>
                     ) : activePending > 0 ? (
                       <form action={personalizeCampaignAction}>
-                        <input
-                          type="hidden"
-                          name="campaign_id"
-                          value={c.id}
-                        />
+                        <input type="hidden" name="campaign_id" value={c.id} />
                         <PersonalizeButton
                           label={`Personalizar ${willProcess} de ${activePending}`}
-                          title={`Encola Lex sobre ${willProcess} campaign_leads sin personalizar. Restantes tras este batch: ${Math.max(0, activePending - LEX_MAX_PER_TRIGGER)}.`}
+                          title={`Encola Lex sobre ${willProcess} campaign_leads.`}
                         />
                       </form>
                     ) : (
                       <span className="text-xs text-muted">Sin pendientes</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {!isCreatedInLemlist ? (
+                      <form action={createLemlistCampaignAction}>
+                        <input type="hidden" name="campaign_id" value={c.id} />
+                        <SyncButton
+                          label="Crear en Lemlist"
+                          variant="primary"
+                          title="Crea campaña + schedules + sequence en Lemlist (draft; no envía)."
+                        />
+                      </form>
+                    ) : voltC.syncable > 0 ? (
+                      <form action={syncLeadsToLemlistAction}>
+                        <input type="hidden" name="campaign_id" value={c.id} />
+                        <SyncButton
+                          label={`Sincronizar ${willSync} de ${voltC.syncable}`}
+                          title={buildSyncTitle(voltC)}
+                        />
+                        {(voltC.pending_personalization > 0 ||
+                          voltC.no_company > 0) && (
+                          <p className="mt-1 text-[10px] text-muted">
+                            {voltC.pending_personalization > 0 &&
+                              `${voltC.pending_personalization} sin personalizar`}
+                            {voltC.pending_personalization > 0 &&
+                              voltC.no_company > 0 &&
+                              " · "}
+                            {voltC.no_company > 0 &&
+                              `${voltC.no_company} sin company`}
+                          </p>
+                        )}
+                      </form>
+                    ) : (
+                      <span className="text-xs text-muted">
+                        {voltC.pending_personalization > 0 ||
+                        voltC.no_company > 0
+                          ? [
+                              voltC.pending_personalization > 0 &&
+                                `${voltC.pending_personalization} sin personalizar`,
+                              voltC.no_company > 0 &&
+                                `${voltC.no_company} sin company`,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : "Sincronizada"}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -226,4 +330,19 @@ export default async function CampaignsPage({
       </div>
     </section>
   );
+}
+
+function buildSyncTitle(voltC: {
+  syncable: number;
+  pending_personalization: number;
+  no_company: number;
+}): string {
+  const parts = [`Sincroniza ${voltC.syncable} leads listos`];
+  if (voltC.pending_personalization > 0) {
+    parts.push(`${voltC.pending_personalization} sin personalizar (correr Lex antes)`);
+  }
+  if (voltC.no_company > 0) {
+    parts.push(`${voltC.no_company} sin company (excluidos)`);
+  }
+  return parts.join(" · ");
 }

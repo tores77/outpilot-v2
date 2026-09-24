@@ -10,8 +10,17 @@ import { healthcheck } from "@/jobs/healthcheck";
 import { novaVibeFetch } from "@/jobs/nova-vibe-fetch";
 import { novaScore } from "@/jobs/nova-score";
 import { lexPersonalize } from "@/jobs/lex-personalize";
+import { voltCreateCampaign } from "@/jobs/volt-create-campaign";
+import { voltSyncLeads } from "@/jobs/volt-sync-leads";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [healthcheck, novaVibeFetch, novaScore, lexPersonalize],
+  functions: [
+    healthcheck,
+    novaVibeFetch,
+    novaScore,
+    lexPersonalize,
+    voltCreateCampaign,
+    voltSyncLeads,
+  ],
 });

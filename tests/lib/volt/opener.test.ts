@@ -1,0 +1,190 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildAddLeadPersonalization,
+  resolveOpener,
+  substituteLeadVars,
+  type LeadForOpener,
+} from "@/lib/volt/opener";
+
+const LEAD_JOSE: LeadForOpener = {
+  first_name: "Jose",
+  last_name: "Perez",
+  company: "Product hackers",
+};
+
+const LEAD_ANA: LeadForOpener = {
+  first_name: "Ana",
+  last_name: "García",
+  company: "Acme S.L.",
+};
+
+const OPENER_FALLBACK =
+  "He estado viendo {{companyName}} y se nota el nivel del producto que tenéis. Cuando uno compite con italianos y franceses en vuestra categoría, eso solo se consigue con años de oficio detrás.";
+
+describe("substituteLeadVars", () => {
+  it("sustituye {{firstName}}, {{lastName}}, {{companyName}} con valores literales de BD", () => {
+    const text = "Hola {{firstName}} {{lastName}} de {{companyName}}";
+    expect(substituteLeadVars(text, LEAD_JOSE)).toBe(
+      "Hola Jose Perez de Product hackers",
+    );
+  });
+
+  it("deja {{signature}} y {{opener}} intactos (los expande Lemlist / fail-safe)", () => {
+    const text = "{{firstName}} — {{opener}} — {{signature}}";
+    expect(substituteLeadVars(text, LEAD_JOSE)).toBe(
+      "Jose — {{opener}} — {{signature}}",
+    );
+  });
+
+  it("no toca variables desconocidas (defensivo)", () => {
+    expect(substituteLeadVars("hola {{invented}}", LEAD_JOSE)).toBe(
+      "hola {{invented}}",
+    );
+  });
+
+  it("company null → string vacío (SIN 'vuestra empresa'; instrucción explícita del gate)", () => {
+    const lead = { ...LEAD_JOSE, company: null };
+    expect(substituteLeadVars("Vi {{companyName}} ayer", lead)).toBe(
+      "Vi  ayer",
+    );
+  });
+
+  it("first_name/last_name null → string vacío", () => {
+    const lead = { first_name: null, last_name: null, company: "Acme" };
+    expect(substituteLeadVars("Hola {{firstName}} {{lastName}}", lead)).toBe(
+      "Hola  ",
+    );
+  });
+
+  it("company literal: NO trim, NO titlecase — 'Product hackers' se queda tal cual", () => {
+    // Verificación explícita de la regla del gate C.
+    expect(substituteLeadVars("Vi {{companyName}}", LEAD_JOSE)).toBe(
+      "Vi Product hackers",
+    );
+    // No lo convertimos a "Product Hackers" ni a "PRODUCT HACKERS".
+  });
+});
+
+describe("resolveOpener", () => {
+  it("personalized: devuelve personalization.opener literal", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "Vi que en Product Hackers diseñáis sistemas de crecimiento.",
+    };
+    expect(
+      resolveOpener({
+        personalization: p,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toBe("Vi que en Product Hackers diseñáis sistemas de crecimiento.");
+  });
+
+  it("generic: devuelve openerFallback con {{companyName}} sustituido", () => {
+    const p = {
+      personalization: "generic",
+      opener: "",
+      reason_if_generic: "no signal",
+    };
+    const result = resolveOpener({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: LEAD_ANA,
+    });
+    expect(result).toContain("Acme S.L.");
+    expect(result).not.toContain("{{companyName}}");
+    // El resto del fallback (competencia italiana/francesa) intacto.
+    expect(result).toContain("italianos y franceses");
+  });
+
+  it("throws si personalization no es un objeto", () => {
+    expect(() =>
+      resolveOpener({
+        personalization: null,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toThrow(/no es un objeto/);
+    expect(() =>
+      resolveOpener({
+        personalization: "personalized" as unknown,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toThrow(/no es un objeto/);
+  });
+
+  it("throws si personalized pero opener vacío (Lex debería haber degradado)", () => {
+    const p = { personalization: "personalized", opener: "   " };
+    expect(() =>
+      resolveOpener({
+        personalization: p,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toThrow(/opener vacío/);
+  });
+
+  it("throws si personalization tiene un valor desconocido", () => {
+    const p = { personalization: "maybe", opener: "x" };
+    expect(() =>
+      resolveOpener({
+        personalization: p,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toThrow(/desconocido/);
+  });
+
+  it("throws si personalization es el claim de Lex ({state:'processing'})", () => {
+    // Volt debe filtrar antes de llegar aquí; test defensivo.
+    const p = { state: "processing", started_at: "2026-09-24T12:00:00.000Z" };
+    expect(() =>
+      resolveOpener({
+        personalization: p,
+        openerFallback: OPENER_FALLBACK,
+        lead: LEAD_JOSE,
+      }),
+    ).toThrow(/desconocido/);
+  });
+});
+
+describe("buildAddLeadPersonalization", () => {
+  it("compone map completo para Jose (personalized)", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "Vi que en Product Hackers diseñáis sistemas de crecimiento.",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: LEAD_JOSE,
+    });
+    expect(map).toEqual({
+      firstName: "Jose",
+      lastName: "Perez",
+      companyName: "Product hackers",
+      opener: "Vi que en Product Hackers diseñáis sistemas de crecimiento.",
+    });
+  });
+
+  it("compone map completo para Ana (generic con fallback resuelto)", () => {
+    const p = {
+      personalization: "generic",
+      opener: "",
+      reason_if_generic: "no signal",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: LEAD_ANA,
+    });
+    expect(map.firstName).toBe("Ana");
+    expect(map.lastName).toBe("García");
+    expect(map.companyName).toBe("Acme S.L.");
+    expect(map.opener).toContain("Acme S.L.");
+    expect(map.opener).not.toContain("{{companyName}}");
+    // {{signature}} se deja para que Lemlist lo expanda (aunque
+    // openerFallback estándar no lo lleva).
+  });
+});
