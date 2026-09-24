@@ -77,7 +77,9 @@ export type LemlistScheduleBody = {
 
 export type LemlistAddStepBody = {
   type: "email";
-  subject: string;
+  // subject opcional: omitir para follow-ups → Lemlist los envía como
+  // respuesta en el hilo del step 1 (comportamiento documentado).
+  subject?: string;
   message: string;
   delay: number;
   index?: number;

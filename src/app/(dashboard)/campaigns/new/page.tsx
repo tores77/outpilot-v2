@@ -141,13 +141,25 @@ function CampaignForm({
             />
             <label className="block">
               <span className="text-xs uppercase tracking-wider text-muted">
-                Subject
+                Subject{" "}
+                {step.index === 1 ? (
+                  <span className="text-accent">(obligatorio)</span>
+                ) : (
+                  <span className="text-muted">
+                    (opcional — vacío = respuesta en el hilo del step 1)
+                  </span>
+                )}
               </span>
               <input
                 type="text"
                 name={`step-${i}-subject`}
-                required
-                defaultValue={step.subject}
+                required={step.index === 1}
+                defaultValue={step.subject ?? ""}
+                placeholder={
+                  step.index === 1
+                    ? undefined
+                    : "Déjalo vacío para enviar como respuesta al step 1"
+                }
                 className="mt-1 block w-full rounded-md border border-hairline bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
               />
             </label>

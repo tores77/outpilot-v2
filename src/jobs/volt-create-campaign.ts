@@ -41,6 +41,11 @@ import {
   VOLT_ACTIVE_DAYS_PER_WEEK,
   VOLT_DEFAULT_SCHEDULES,
 } from "@/config/lemlist";
+import {
+  composeAddStepBody,
+  describeStep,
+  stepMatches,
+} from "@/lib/volt/step-mapper";
 import type { Database } from "@/lib/supabase/database.types";
 
 type EventData = {
@@ -68,7 +73,9 @@ type CampaignRow = Database["public"]["Tables"]["campaigns"]["Row"];
 type SequenceStep = {
   index: number;
   delayDays: number;
-  subject: string;
+  // subject opcional en steps 2+ (reply-thread behavior). Ver
+  // src/lib/volt/step-mapper.ts para la lógica de composición.
+  subject?: string;
   bodyHtml: string;
 };
 
@@ -92,7 +99,10 @@ function extractSequence(campaign: CampaignRow): {
       const step = s as Record<string, unknown>;
       const idx = typeof step.index === "number" ? step.index : i + 1;
       const delay = typeof step.delayDays === "number" ? step.delayDays : 0;
-      const subj = typeof step.subject === "string" ? step.subject : "";
+      // subject opcional: si viene undefined o cadena vacía tras trim,
+      // NO se fija (el mapper luego omite la clave al enviar a Lemlist).
+      const rawSubj = typeof step.subject === "string" ? step.subject : "";
+      const subj = rawSubj.trim() === "" ? undefined : rawSubj;
       const body = typeof step.bodyHtml === "string" ? step.bodyHtml : "";
       return { index: idx, delayDays: delay, subject: subj, bodyHtml: body };
     }),
@@ -198,10 +208,15 @@ export const voltCreateCampaign = inngest.createFunction(
     });
 
     // ===== 7. Upload sequence steps (un step.run por step) =====
-    // Idempotencia: cada step hace GET sequences fresco y compara por
-    // posición + subject. Si posición i ya tiene un step con MISMO
-    // subject → skip. Si tiene OTRO subject → abort ("divergente").
-    // Si vacía → POST.
+    // Idempotencia via stepMatches (src/lib/volt/step-mapper.ts):
+    //   - GET sequences fresco por step (memoizable si el step.run pasa).
+    //   - Si posición i tiene un step que MATCHES el expected → skip.
+    //     Match: ambos con subject → subjects iguales; ambos sin
+    //     subject (reply-thread) → message[:80] iguales.
+    //   - Si tiene otro (divergent) → abort con detalle.
+    //   - Si vacía → POST con body compuesto por composeAddStepBody
+    //     (que OMITE la clave subject cuando está vacía; enviar "" NO
+    //     dispara el reply-thread behavior de Lemlist).
     let stepsCreated = 0;
     let stepsSkipped = 0;
     for (let i = 0; i < sequenceSteps.length; i += 1) {
@@ -218,19 +233,15 @@ export const voltCreateCampaign = inngest.createFunction(
         const currentSteps = seqMap[sequenceId]?.steps ?? [];
         const atPosition = currentSteps[i];
         if (atPosition) {
-          if (atPosition.subject === expected.subject) {
+          if (stepMatches(atPosition, expected)) {
             return { action: "skip", stepId: atPosition._id ?? null };
           }
           throw new Error(
-            `upload-step-${i}: DIVERGENT SEQUENCE. Posición ${i} tiene subject "${atPosition.subject}" pero se esperaba "${expected.subject}". Limpieza manual necesaria antes de re-triggerear.`,
+            `upload-step-${i}: DIVERGENT SEQUENCE en posición ${i}. Expected: ${describeStep(expected)}. Actual: ${describeStep(atPosition)}. Limpieza manual necesaria antes de re-triggerear.`,
           );
         }
-        const created = await addSequenceStep(lemlist, sequenceId, {
-          type: "email",
-          subject: expected.subject,
-          message: expected.bodyHtml,
-          delay: expected.delayDays,
-        });
+        const body = composeAddStepBody(expected);
+        const created = await addSequenceStep(lemlist, sequenceId, body);
         return { action: "create", stepId: created._id };
       });
       if (outcome.action === "create") stepsCreated += 1;

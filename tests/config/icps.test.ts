@@ -21,13 +21,32 @@ describe("ICPS catalog", () => {
     expect(t.steps.map((s) => s.index)).toEqual([1, 2, 3]);
   });
 
-  it("todos los pasos de todos los ICPs pasan validateVariables (subject + body)", () => {
+  it("todos los pasos de todos los ICPs pasan validateVariables (subject cuando presente + body)", () => {
     for (const t of ICPS) {
       for (const step of t.steps) {
-        const subj = validateVariables(step.subject);
+        if (step.subject !== undefined) {
+          const subj = validateVariables(step.subject);
+          expect(subj.ok, `${t.slug} step ${step.index} subject`).toBe(true);
+        }
         const body = validateVariables(step.bodyHtml);
-        expect(subj.ok, `${t.slug} step ${step.index} subject`).toBe(true);
         expect(body.ok, `${t.slug} step ${step.index} bodyHtml`).toBe(true);
+      }
+    }
+  });
+
+  it("step 1 SIEMPRE tiene subject (abre el hilo); steps 2+ lo omiten (reply-thread)", () => {
+    for (const t of ICPS) {
+      const [first, ...rest] = t.steps;
+      expect(first.subject, `${t.slug} step 1 subject present`).toBeDefined();
+      expect(
+        (first.subject ?? "").trim().length,
+        `${t.slug} step 1 subject non-empty`,
+      ).toBeGreaterThan(0);
+      for (const step of rest) {
+        expect(
+          step.subject,
+          `${t.slug} step ${step.index} subject omitted (reply-thread)`,
+        ).toBeUndefined();
       }
     }
   });

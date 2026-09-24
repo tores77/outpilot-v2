@@ -138,12 +138,60 @@ describe("sequenceSchema", () => {
     expect(r.success).toBe(false);
   });
 
-  it("rechaza subject vacío", () => {
+  it("rechaza subject vacío EN EL STEP 1 (abre el hilo, obligatorio)", () => {
     const r = sequenceSchema.safeParse({
       ...baseValid,
       steps: [{ ...validStep, subject: "" }],
     });
     expect(r.success).toBe(false);
+    if (!r.success) {
+      const messages = r.error.issues.map((i) => i.message).join(" | ");
+      expect(messages).toMatch(/primer step requiere subject/i);
+    }
+  });
+
+  it("ACEPTA subject undefined/omitido en steps 2+ (reply-thread)", () => {
+    const r = sequenceSchema.safeParse({
+      ...baseValid,
+      steps: [
+        { ...validStep, index: 1 }, // subject presente
+        { index: 2, delayDays: 4, bodyHtml: "<p>{{firstName}} sigue.</p>" }, // sin subject
+        { index: 3, delayDays: 1, bodyHtml: "<p>Cierro el hilo.</p>" }, // sin subject
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("ACEPTA subject vacío ('') en steps 2+ (equivalente a omitido)", () => {
+    const r = sequenceSchema.safeParse({
+      ...baseValid,
+      steps: [
+        { ...validStep, index: 1 },
+        { index: 2, delayDays: 4, subject: "", bodyHtml: "<p>x</p>" },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rechaza subject en step 2+ con variable no permitida", () => {
+    // Aunque sea opcional, si lo pones tiene que validar variables.
+    const r = sequenceSchema.safeParse({
+      ...baseValid,
+      steps: [
+        { ...validStep, index: 1 },
+        {
+          index: 2,
+          delayDays: 4,
+          subject: "hola {{invented}}",
+          bodyHtml: "<p>x</p>",
+        },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const messages = r.error.issues.map((i) => i.message).join(" | ");
+      expect(messages).toMatch(/invented/);
+    }
   });
 
   it("acepta un sequence sacado de un template real (round-trip)", () => {

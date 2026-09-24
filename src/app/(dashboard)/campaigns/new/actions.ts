@@ -43,12 +43,19 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
 
   // Reconstruir sequence desde los inputs. Cada step del template
   // tiene una fila; leemos los N indices y componemos el array.
-  const stepsInput: Sequence["steps"] = template.steps.map((_, i) => ({
-    index: fieldInt(formData, `step-${i}-index`),
-    delayDays: fieldInt(formData, `step-${i}-delayDays`),
-    subject: fieldString(formData, `step-${i}-subject`),
-    bodyHtml: fieldString(formData, `step-${i}-bodyHtml`),
-  }));
+  // subject: undefined si viene "" o whitespace, así se persiste el
+  // JSON limpio (sin clave subject en los follow-ups). Zod validará
+  // que el step 1 tenga subject non-empty.
+  const stepsInput: Sequence["steps"] = template.steps.map((_, i) => {
+    const rawSubject = fieldString(formData, `step-${i}-subject`);
+    const subject = rawSubject.trim() === "" ? undefined : rawSubject;
+    return {
+      index: fieldInt(formData, `step-${i}-index`),
+      delayDays: fieldInt(formData, `step-${i}-delayDays`),
+      subject,
+      bodyHtml: fieldString(formData, `step-${i}-bodyHtml`),
+    };
+  });
 
   const candidate: Sequence = {
     version: 1,

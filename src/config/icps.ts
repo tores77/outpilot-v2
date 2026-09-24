@@ -36,7 +36,12 @@ export const ALLOWED_VARIABLES: readonly IcpVariable[] = [
 export type IcpStep = {
   index: number; // 1-based
   delayDays: number; // dias desde el paso anterior; 0 para el primero
-  subject: string;
+  // subject OPCIONAL: solo obligatorio en el step 1. Los steps 2+ se
+  // omiten para que Lemlist los envíe como respuesta en el hilo del
+  // step 1 (comportamiento documentado: "omit for follow-ups to send
+  // as reply thread"). Ver
+  // https://developer.lemlist.com/api-reference/objects-definitions/step.md
+  subject?: string;
   bodyHtml: string;
 };
 
@@ -105,15 +110,16 @@ const industrialPremiumEs: IcpTemplate = {
       bodyHtml: industrialPremiumEs_step1,
     },
     {
+      // Sin subject → Lemlist lo envía como respuesta en el hilo del
+      // step 1 (mejor tasa de apertura, hilo continuo).
       index: 2,
       delayDays: 4,
-      subject: "Una cuenta rápida sobre vuestra web",
       bodyHtml: industrialPremiumEs_step2,
     },
     {
+      // Idem: sigue el hilo.
       index: 3,
       delayDays: 1,
-      subject: "Cierro este hilo",
       bodyHtml: industrialPremiumEs_step3,
     },
   ],
