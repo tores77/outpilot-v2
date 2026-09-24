@@ -29,6 +29,37 @@ export const lexResponseSchema = z.object({
 export type LexResponse = z.infer<typeof lexResponseSchema>;
 
 /**
+ * Sanitizador determinista de estilo. Se aplica al opener ANTES del
+ * gate mecánico porque las reglas de estilo del prompt (regla 8) NO
+ * son de fiar: en el smoke real de T022 Haiku metió un guion largo
+ * pese a la prohibición explícita. El sanitizador NO decide semántica
+ * (no toca palabras, no cambia registro), solo forma tipográfica:
+ *
+ *   — / –      →  ". " si le sigue mayúscula, ", " en otro caso
+ *   " " " "    →  " (comilla recta doble)
+ *   ' ' ' '    →  ' (comilla recta simple)
+ *   …          →  ...
+ *   dobles+ espacios → un espacio
+ *
+ * Idempotente: aplicar N veces produce el mismo resultado.
+ */
+export function sanitizeOpenerStyle(opener: string): string {
+  return opener
+    // Em-dash / en-dash con posibles espacios alrededor: si le sigue
+    // mayúscula → punto + espacio; en otro caso → coma + espacio.
+    .replace(/\s*[—–]\s*(?=[A-ZÁÉÍÓÚÑ¿¡])/g, ". ")
+    .replace(/\s*[—–]\s*/g, ", ")
+    // Comillas tipográficas dobles y simples → rectas.
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’‚‛]/g, "'")
+    // Ellipsis Unicode → tres puntos ASCII.
+    .replace(/…/g, "...")
+    // Colapsar 2+ espacios a uno.
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
+/**
  * Intenta parsear el JSON crudo devuelto por Haiku. Tolera fences
  * markdown (```json ... ```), texto antes/después y variantes de
  * espacios. Si nada encaja, devuelve un LexResponse "generic" con
@@ -50,7 +81,9 @@ export function parseLexResponse(raw: string): LexResponse {
       `parse_failed_schema: ${check.error.issues[0]?.message ?? "unknown"}`,
     );
   }
-  return check.data;
+  // Sanitiza el opener antes de devolver: cualquier caller (incluido
+  // applyFieldGate) opera sobre la versión canónica sin tics.
+  return { ...check.data, opener: sanitizeOpenerStyle(check.data.opener) };
 }
 
 function stripMarkdownFences(text: string): string {

@@ -112,6 +112,27 @@ por dos variantes.
 Barato de implementar; no bloquea nada. Anotar por si un futuro
 script de patch se pega con lo mismo.
 
+### Registro (vosotros/ustedes) por ICP en Lex
+
+El system prompt de Lex fija hoy el registro a español de España
+(segunda persona del plural: vosotros, tenéis, diseñáis) para que
+case con las plantillas actuales (Industrial Premium ES). La regla
+10 lo hace explícito y hay test que lo verifica en `prompt.test.ts`.
+
+Cuando entre un ICP LATAM u otro que use "usted"/"ustedes":
+- Mover el registro del prompt global a un parámetro del ICP: nuevo
+  campo `IcpTemplate.registerHint: "vosotros" | "ustedes" | ...`
+  (o similar).
+- Inyectar ese hint al componer el system prompt en
+  `src/lib/lex/prompt.ts` (parametrizar la regla 10 según el
+  template que dispara el trigger).
+- El job `lex-personalize` ya recibe el `campaign_id`, y de ahí el
+  `icp_slug`; el template es resoluble en el pipeline.
+- Test paralelo: fixture con lead LATAM + template LATAM verifica que
+  el prompt inyectado contiene "usted"/"ustedes" y NO "vosotros".
+
+Trabajo pequeño; no urgente porque hoy solo hay un ICP ES.
+
 ### Robots.txt granular en Lex website fetcher
 
 El parser de `src/lib/lex/website.ts` (T022) solo detecta blanket

@@ -67,6 +67,17 @@ describe("LEX_SYSTEM_PROMPT", () => {
     expect(LEX_SYSTEM_PROMPT).toMatch(/renovar la web/);
     expect(LEX_SYSTEM_PROMPT).toMatch(/NO cierres proponiendo/i);
   });
+
+  it("regla 10: registro español de España, vosotros, prohíbe ustedes", () => {
+    expect(LEX_SYSTEM_PROMPT).toMatch(/segunda persona del plural/i);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/vosotros/);
+    // Formas verbales del ejemplo (deben aparecer literales en el prompt
+    // para que el modelo las tenga a mano).
+    expect(LEX_SYSTEM_PROMPT).toMatch(/tenéis/);
+    expect(LEX_SYSTEM_PROMPT).toMatch(/diseñáis|hacéis/);
+    // Prohibición literal.
+    expect(LEX_SYSTEM_PROMPT).toMatch(/NUNCA "ustedes"/);
+  });
 });
 
 describe("buildLeadFieldMap", () => {

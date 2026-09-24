@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applyFieldGate, parseLexResponse } from "@/lib/lex/response";
+import {
+  applyFieldGate,
+  parseLexResponse,
+  sanitizeOpenerStyle,
+} from "@/lib/lex/response";
 
 describe("parseLexResponse", () => {
   it("parsea un JSON limpio", () => {
@@ -76,6 +80,69 @@ describe("parseLexResponse", () => {
     const r = parseLexResponse(raw);
     expect(r.personalization).toBe("generic");
     expect(r.reason_if_generic).toBe("no_signal");
+  });
+});
+
+describe("sanitizeOpenerStyle — reglas de estilo NO confiadas al prompt", () => {
+  it("fixture real del smoke T022: opener de Jose Perez con em-dash → coma", () => {
+    // Caso real que motivó el sanitizer: pese a la regla 8 del prompt,
+    // Haiku metió un guion largo. Verificamos que el output post-sanitizer
+    // no lo lleva y que la coma preserva la lectura.
+    const raw =
+      "Vi que en Product Hackers diseñan sistemas de crecimiento conectando datos, tecnología y negocio — no optimizan métricas aisladas sino impacto real.";
+    const clean = sanitizeOpenerStyle(raw);
+    expect(clean).toBe(
+      "Vi que en Product Hackers diseñan sistemas de crecimiento conectando datos, tecnología y negocio, no optimizan métricas aisladas sino impacto real.",
+    );
+    expect(clean).not.toContain("—");
+    expect(clean).not.toContain("–");
+  });
+
+  it("em-dash seguido de mayúscula → punto + espacio (nueva frase)", () => {
+    expect(sanitizeOpenerStyle("Producto premium — Fabricantes desde 1980")).toBe(
+      "Producto premium. Fabricantes desde 1980",
+    );
+    // También si le sigue una vocal acentuada mayúscula.
+    expect(sanitizeOpenerStyle("Interesante — Álvaro dijo eso")).toBe(
+      "Interesante. Álvaro dijo eso",
+    );
+  });
+
+  it("en-dash (–) también se trata como em-dash", () => {
+    expect(sanitizeOpenerStyle("primera parte – segunda parte")).toBe(
+      "primera parte, segunda parte",
+    );
+  });
+
+  it("comillas tipográficas → rectas", () => {
+    expect(sanitizeOpenerStyle("Él dijo “hola” y ‘adiós’")).toBe(
+      'Él dijo "hola" y \'adiós\'',
+    );
+  });
+
+  it("ellipsis Unicode → tres puntos ASCII", () => {
+    expect(sanitizeOpenerStyle("Vi vuestra web…")).toBe("Vi vuestra web...");
+  });
+
+  it("colapsa 2+ espacios y trimea puntas", () => {
+    expect(sanitizeOpenerStyle("  hola   mundo  ")).toBe("hola mundo");
+  });
+
+  it("idempotente: un opener ya limpio no cambia", () => {
+    const clean = "Vi que exportáis a Alemania y Francia.";
+    expect(sanitizeOpenerStyle(clean)).toBe(clean);
+  });
+
+  it("parseLexResponse aplica el sanitizer sobre opener antes de devolver", () => {
+    const raw = JSON.stringify({
+      opener: "algo — Empresa X",
+      personalization: "personalized",
+      fields_used: ["company"],
+      reason_if_generic: null,
+    });
+    const r = parseLexResponse(raw);
+    // El sanitizer se ha aplicado: em-dash + mayúscula → punto.
+    expect(r.opener).toBe("algo. Empresa X");
   });
 });
 
