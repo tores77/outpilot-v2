@@ -112,6 +112,38 @@ por dos variantes.
 Barato de implementar; no bloquea nada. Anotar por si un futuro
 script de patch se pega con lo mismo.
 
+### Prevenir em-dash en el opener via prompt (no solo sanitizador)
+
+El sanitizador de `src/lib/lex/response.ts` convierte `—` en `, `
+cuando le sigue minúscula. Funciona pero deja una coma "de más" en
+oraciones que ya venían con comas en serie (caso real del smoke:
+"conectando datos, tecnología y negocio, no optimizáis…" queda con
+un ritmo de comas denso).
+
+Alternativa que preferimos como primera línea de defensa: instruir en
+el prompt "dos frases cortas, máximo 30 palabras cada una". Si Haiku
+compone dos frases con punto entre ellas, el em-dash nunca aparece.
+El sanitizador queda como red de seguridad para casos residuales.
+
+Trabajo: añadir la restricción a la regla 8 o crear regla 8b. Un
+ciclo de smoke sobre un par de leads para verificar longitud + tono.
+
+### Afinar regla 10: distinguir "su/sus" de 2ª persona vs 3ª persona
+
+La regla 10 actual prohíbe `su/sus` "con sentido de segunda persona".
+El matiz es correcto pero probablemente confuso para el modelo. Falla
+posible: "su producto es líder" (descripción en 3ª persona sobre la
+empresa) es OK; "su producto se vende bien" (dirigido al lead, 2ª
+persona) NO. Reformular con ejemplos:
+
+  OK  (3ª persona): "Su producto compite con italianos y franceses."
+  NO  (2ª persona): "Su web actual pierde clientes." → debería ser
+                    "Vuestra web actual pierde clientes."
+
+Trabajo: reescribir la regla 10 con dos ejemplos contrastados.
+Requiere una tanda de smoke para verificar que Haiku hace la
+distinción.
+
 ### Registro (vosotros/ustedes) por ICP en Lex
 
 El system prompt de Lex fija hoy el registro a español de España

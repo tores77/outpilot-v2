@@ -7,8 +7,9 @@
 **Contrato vivo:** `docs/OUTPILOT_v2_Spec_INTERNA.md` (UL-2026-OUTPILOT-V2-SPEC-R2)
 **Traspaso anterior:** `docs/TRASPASO-FASE1.md`
 
-Este documento es **PARCIAL**: T017–T022 cerrados (T022 con reprueba
-pendiente), T023–T026 no arrancados. Se ampliará al cerrar la fase.
+Este documento es **PARCIAL**: T017–T022 cerrados. T023–T026 no
+arrancados. Se ampliará al cerrar la fase. **Actualizado 2026-09-24
+con la reprueba real de T022 tras el fix del sanitizador + regla 10.**
 
 ---
 
@@ -211,6 +212,27 @@ pendiente), T023–T026 no arrancados. Se ampliará al cerrar la fase.
 - Tests: `tests/lib/lex/{prompt,response,website,claim}.test.ts`
   (50+, incluido el test determinista del race con mock atómico).
 
+**Reprueba real (2026-09-24, cierre de T022):**
+
+- Reset de las 2 filas + 1 click → 1 run → api_costs con
+  **exactamente 2 filas** nuevas (tokens_in 1483 Jose, 982 Ana).
+  El delta de tokens vs la primera ejecución (~+106 tokens_in) es
+  la regla 10 añadida al system prompt.
+- **Jose (con website)** — `personalized`, `fields_used`
+  `["firstName", "company", "website_summary"]`, opener sin em-dash,
+  en vosotros (`diseñáis`, `optimizáis`), sin puente hacia la
+  propuesta (paso 1 del email construye ese puente después).
+- **Ana (sin website)** — `generic`, `fields_used: []`,
+  `reason_if_generic` explicando la falta de señal verificable
+  (regla 3 anti-fabricación).
+- Los defectos de calidad del smoke previo (em-dash pese a la
+  regla 8, registro `diseñan` en vez de `diseñáis`) resueltos por
+  las dos capas del fix: sanitizador determinista para forma
+  tipográfica, regla 10 explícita para registro. Confirmado por
+  Pere.
+
+**T022 CERRADA.**
+
 ### Rutas de la UI (delta vs Fase 1)
 
 ```
@@ -291,6 +313,8 @@ psql "$SUPABASE_DB_URL" -f supabase/scripts/t022_smoke_leads.sql
 ### Histórico de commits Fase 2 hasta el corte
 
 ```
+d6659b0 fix(t022): sanitizador de estilo post-parse + registro vosotros en el prompt
+bfad452 docs(fase2): traspaso parcial 2026-09-23
 b520d43 fix(t022): anti fan-out — concurrency + claim atómico + step por lead + UI con "Procesando"
 5a088f3 feat(t022): lex — opener personalizado (haiku + website + gate mecánico) + migration 004a
 f735894 fix(t021): disable submit on pending + dedupe draft name + success flashes to gray
@@ -457,10 +481,13 @@ aquí — el R2 sigue siendo el contrato válido.
 
 ### En código (no bloqueantes)
 
-- **Reprueba de T022 en producción** (§2 post-mortem). Sin ella no se
-  cierra T022 formalmente.
 - **Normalizar `\r\n` → `\n` en `sequence.steps[].bodyHtml`** vía Zod
   transform (BACKLOG). Barato; no urgente.
+- **Prevenir em-dash via prompt** ("dos frases cortas, máx 30 palabras
+  cada una") — el sanitizador queda como red (BACKLOG añadido tras
+  la reprueba real de T022).
+- **Afinar regla 10** para distinguir `su/sus` de 2ª persona vs 3ª
+  persona con ejemplos contrastados (BACKLOG).
 - **Robots.txt granular en Lex website fetcher** (BACKLOG). El parser
   actual solo detecta blanket `Disallow: /`. Suficiente porque solo
   pedimos la home del lead; anotar si algún día reutilizamos el
