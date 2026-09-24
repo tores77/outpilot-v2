@@ -112,6 +112,51 @@ por dos variantes.
 Barato de implementar; no bloquea nada. Anotar por si un futuro
 script de patch se pega con lo mismo.
 
+### Capitalización de `leads.company` (Vibe vs Lex discrepan)
+
+Vibe devuelve valores como `"Product hackers"` (minúscula en la
+segunda palabra). Lex lee el website_summary y en su opener escribe
+`"Product Hackers"` (Title Case, casi seguro por el `<title>` de la
+web). Resultado: el subject expandido usa "Product hackers" (BD) y
+el opener usa "Product Hackers" (Lex) → mismo email, misma frase,
+capitalización distinta. Chirría.
+
+Propuestas (a decidir antes del smoke real de T024):
+
+- **A.** Normalizar al guardar el lead: pipeline de import (Vibe, CSV,
+  manual) aplica Title Case respetando siglas conocidas (BBVA, S.L.,
+  S.A., etc.). Simple pero heurístico; puede fallar con marcas
+  intencionadamente en minúscula (p.ej. "amazon", "figma").
+- **B.** Lex devuelve `company_display` extraído del `<title>` o
+  metadata de la web y Volt lo usa como `companyName` en el
+  personalization map (fallback a `leads.company` si Lex no lo pobló).
+  Respetuoso con marcas irregulares; obliga a extender el prompt de
+  Lex y el gate mecánico.
+- **C.** Mixto: guardar como venga en BD, pero en el pipeline de
+  addLead usar `company_display` (Lex) si existe, si no `leads.company`
+  literal.
+
+Decisión pospuesta a antes del smoke real. Anotar en el reporte del
+gate T024 con recomendación.
+
+### Firma manual + `{{signature}}` en el copy del template industrial_premium_es
+
+El body de los 3 pasos actualmente lleva `Pau · Umania Labs` como
+byline literal (después del CTA de Calendly) AND `{{signature}}` al
+final del párrafo. Podría ser:
+
+- Intencional (byline en el CTA + block de firma completo abajo).
+- Redundante (dos firmas en un email de 3 líneas).
+
+Decisión de Pere antes del smoke real. Si se quita una:
+- Quitar `{{signature}}` → el mailbox de Lemlist no añade nada
+  autogenerado (más control sobre el copy final).
+- Quitar `Pau · Umania Labs` → depender de `{{signature}}` que
+  Lemlist expande desde la config del mailbox (más consistente si se
+  rota entre mailboxes).
+
+No urgente; anotar para el gate T024.
+
 ### Cleanup pre-smoke T024 — leads no aptos en Smoke 50
 
 Los 2 leads del smoke actual de "Industrial Premium ES · Smoke 50"

@@ -7,9 +7,10 @@
 **Contrato vivo:** `docs/OUTPILOT_v2_Spec_INTERNA.md` (UL-2026-OUTPILOT-V2-SPEC-R2)
 **Traspaso anterior:** `docs/TRASPASO-FASE1.md`
 
-Este documento es **PARCIAL**: T017–T022 cerrados. T023–T026 no
+Este documento es **PARCIAL**: T017–T023 cerrados. T024–T026 no
 arrancados. Se ampliará al cerrar la fase. **Actualizado 2026-09-24
-con la reprueba real de T022 tras el fix del sanitizador + regla 10.**
+con T022 (reprueba real) y T023 (Volt sync end-to-end verificado
+en producción).**
 
 ---
 
@@ -233,6 +234,102 @@ con la reprueba real de T022 tras el fix del sanitizador + regla 10.**
 
 **T022 CERRADA.**
 
+### T023 — Volt sync (crear campaña + subir leads a Lemlist)
+
+Endpoint clave descubierto en probe dedicado
+(`probe:lemlist-add-step` contra campaña PROBE en draft de Pere):
+
+- `POST /api/sequences/:sequenceId/steps` con body
+  `{type: "email", subject?, message, delay, index?}`.
+  Response: `{_id, type, delay, emailTemplateId, message}`.
+  Delay en **días** (0-1500). Subject required para email steps,
+  MAX 400 chars, PERO opcional si se quiere que el step actúe como
+  respuesta en el hilo del step anterior (reply-thread).
+- **NO idempotente** por sí solo — dos POST iguales crean dos steps.
+  La idempotencia se implementa en el caller.
+
+Piezas nuevas:
+
+- `src/config/volt.ts`: `VOLT_MAX_SYNC_PER_TRIGGER=100`,
+  `LEMLIST_UNSAFE_CAMPAIGN_STATES = ["running","started","active"]`,
+  `VOLT_ERROR_CAMPAIGN_UNSAFE`.
+- `src/channels/lemlist/campaign-ops.ts`: wrappers finos sobre el
+  cliente HTTP. Fuera de la interfaz `ChannelProvider` — son
+  primitivas Lemlist-específicas que Volt orquesta paso a paso:
+  createLemlistCampaign, getLemlistCampaign, getCampaignSchedules,
+  patchSchedule, createSchedule, associateSchedule,
+  getCampaignSequences, addSequenceStep, findScheduleMatching.
+- `src/lib/volt/opener.ts`: pure functions.
+  - `substituteLeadVars`: sustituye {{firstName}}/{{lastName}}/
+    {{companyName}} con valor **literal de BD** (sin trim, sin
+    titlecase, sin fallback textual como "vuestra empresa" — regla
+    del gate C).
+  - `resolveOpener`: personalized → `opener` literal; generic →
+    `openerFallback` con `{{companyName}}` sustituido.
+  - `buildAddLeadPersonalization`: mapa completo para addLead
+    ({firstName, lastName, companyName, opener}).
+- `src/lib/volt/step-mapper.ts`: `composeAddStepBody` (OMITE la
+  clave `subject` cuando está vacía — enviar `""` NO dispara el
+  reply-thread; hay que omitir la clave del JSON) y `stepMatches`
+  (comparador idempotente: ambos con subject → subjects iguales;
+  ambos sin subject → `message[:80]` iguales; uno u otro con
+  subject → divergent).
+- `src/lib/volt/counts.ts`: `getVoltCounts` para el label del botón
+  (`syncable / pending_personalization / no_company`).
+- `src/jobs/volt-create-campaign.ts`: 7 steps de Inngest, uno por
+  recurso Lemlist (regla dura del gate B). Concurrency 1 por
+  campaignId. Idempotencia en cada step (guards `.is(null)`,
+  `findScheduleMatching`, `stepMatches`+abort divergent).
+- `src/jobs/volt-sync-leads.ts`: 5 steps. Guard
+  `assert-campaign-not-running` antes del loop de sync-lead-{id}
+  (aborta si status ∈ {running, started, active}). Step por lead.
+  Persiste `provider_lead_id` + `provider_contact_id` con guard
+  `.is(provider_lead_id, null)`.
+- `src/app/(dashboard)/campaigns/sync-button.tsx` (Client
+  Component) con `useFormStatus`, variantes primary/secondary.
+- `/campaigns` UI: dos botones separados por decisión del gate
+  ("Crear en Lemlist" primary rojo, "Sincronizar N de M"
+  secondary gris con sub-label "M sin personalizar · K sin
+  company" cuando aplique).
+- `scripts/probe-lemlist-add-step.mjs` (T023 discovery, dry-run
+  default + EXECUTE con guard duro nombre="PROBE*" y status
+  draft/paused).
+- `scripts/probe-volt-sync-preview.mjs`: dry-run PURO. Sin modo
+  EXECUTE (los POST reales solo desde el botón de la UI). Redacta
+  PII de leads en stdout excepto el opener resuelto (que es lo
+  que va a Lemlist, ya sanitizado).
+- `supabase/scripts/t023_smoke50_thread.sql`: UPDATE in-place que
+  elimina la clave `subject` de los steps 2 y 3 de Smoke 50 (via
+  operador `-` de jsonb, no `SET ""`). RETURNING con 3 checks.
+
+Convención consolidada (patrón anti fan-out T022 + granularidad
+T023):
+
+- **Un recurso externo por step.run**. Cada llamada a un servicio
+  externo (Lemlist, Anthropic, etc.) va en su propio step.run
+  para retry aislado, sin re-ejecutar sub-operaciones ya
+  completadas en el mismo lote.
+- **Idempotencia por lookup fresco**: cada step que crea algo hace
+  primero GET del estado actual, compara con lo esperado, y decide
+  skip / create / abort. Los "abort" por divergencia nunca
+  sobreescriben: piden limpieza manual.
+
+**Reprueba real (2026-09-24, cierre de T023):**
+
+- Campaña Lemlist `cam_Kd5FFwoW4amQGdky8` en draft con 2 schedules
+  correctos (M-X-J 09-11 / 15-17 Europe/Madrid) y 3 sequence steps
+  (step 1 con subject, steps 2 y 3 como reply — visualmente
+  marcados como reply en Lemlist UI).
+- "Sincronizar 2 de 2" → 1 run, `provider_lead_id` y
+  `provider_contact_id` poblados en BD para ambos leads.
+- Preview real en Lemlist UI: Jose con opener personalizado, Ana
+  con fallback y `{{companyName}}` sustituido a "Acme S.L.".
+- Sender asignado a mano en Lemlist UI (los "senders" de Lemlist
+  son usuarios; hay uno solo con los 4 buzones — Volt no toca la
+  asignación por decisión del gate).
+
+**T023 CERRADA.**
+
 ### Rutas de la UI (delta vs Fase 1)
 
 ```
@@ -313,6 +410,11 @@ psql "$SUPABASE_DB_URL" -f supabase/scripts/t022_smoke_leads.sql
 ### Histórico de commits Fase 2 hasta el corte
 
 ```
+54cb046 fix(t023): reply-thread para follow-ups (subject opcional en step 2+)
+9e54f3b docs(backlog): nota T024 pre-smoke cleanup (Jose + Ana no aptos)
+5dabe97 feat(t023): volt sync (crear campaña + sincronizar leads a Lemlist)
+b453340 chore(t023): probe add-step (endpoint documentado + descubrimiento de idempotencia)
+5ef399c docs(t022): cierre con reprueba real (2026-09-24)
 d6659b0 fix(t022): sanitizador de estilo post-parse + registro vosotros en el prompt
 bfad452 docs(fase2): traspaso parcial 2026-09-23
 b520d43 fix(t022): anti fan-out — concurrency + claim atómico + step por lead + UI con "Procesando"
@@ -488,6 +590,11 @@ aquí — el R2 sigue siendo el contrato válido.
   la reprueba real de T022).
 - **Afinar regla 10** para distinguir `su/sus` de 2ª persona vs 3ª
   persona con ejemplos contrastados (BACKLOG).
+- **Capitalización de company** (Vibe "Product hackers" vs Lex
+  "Product Hackers"): decidir antes del smoke real de T024
+  (BACKLOG).
+- **Firma manual + `{{signature}}` en el copy** del template
+  industrial_premium_es: decisión pendiente (BACKLOG).
 - **Robots.txt granular en Lex website fetcher** (BACKLOG). El parser
   actual solo detecta blanket `Disallow: /`. Suficiente porque solo
   pedimos la home del lead; anotar si algún día reutilizamos el
