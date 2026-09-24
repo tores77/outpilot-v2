@@ -112,6 +112,22 @@ por dos variantes.
 Barato de implementar; no bloquea nada. Anotar por si un futuro
 script de patch se pega con lo mismo.
 
+### Cleanup pre-smoke T024 — leads no aptos en Smoke 50
+
+Los 2 leads del smoke actual de "Industrial Premium ES · Smoke 50"
+son de test, no aptos para envío real:
+- Jose Perez / Product hackers: real, pero fuera de ICP (Product
+  Hackers no es fabricante industrial premium; está en el pool solo
+  para verificar el path "personalized" con website_summary).
+- Ana García: dominio inventado (`example.com` o similar), rebotará
+  al primer envío.
+
+Antes de que T024 lance el smoke real a Lemlist, ambos deben:
+1. `UPDATE campaign_leads SET removed_at = now() WHERE ...`.
+2. Borrarse en Lemlist UI (o via DELETE endpoint).
+
+T024 debe incluirlo como paso previo con gate humano explícito.
+
 ### Prevenir em-dash en el opener via prompt (no solo sanitizador)
 
 El sanitizador de `src/lib/lex/response.ts` convierte `—` en `, `
