@@ -20,6 +20,7 @@
     "probe:lemlist-activities": "node --env-file-if-exists=.env.local scripts/probe-lemlist-activities.mjs",
     "probe:lemlist-write": "node --env-file-if-exists=.env.local scripts/probe-lemlist-write.mjs",
     "probe:lemlist-write-schedule": "node --env-file-if-exists=.env.local scripts/probe-lemlist-write-schedule.mjs",
+    "probe:lemlist-add-step": "node --env-file-if-exists=.env.local scripts/probe-lemlist-add-step.mjs",
     "test": "vitest run"
   },
   "dependencies": {
