@@ -157,6 +157,17 @@ Decisión de Pere antes del smoke real. Si se quita una:
 
 No urgente; anotar para el gate T024.
 
+### Probe país-del-contacto en Vibe (country_code vs prospect_country_code)
+
+`prospect_country_code` es del conector MCP: la API cruda de Explorium
+lo rechaza con 422 "extra fields not permitted" (verificado 2026-09-25).
+Hoy filtramos solo por `company_country_code`. Si queremos separar
+"empresa ES" de "contacto residente ES", probar primero con un probe
+gratis (`POST /prospects/stats`) usando `country_code` como clave; si
+responde 200, añadir al type `VibeApiFilters`, al bloque
+`vibeFilters` de los ICPs que lo necesiten y al override de países
+en `resolveVibeApiFilters`. Sin probe previo, NO añadirlo.
+
 ### Guardarraíles de entregabilidad → T025
 
 Cuando lleguen los primeros webhooks reales de Lemlist

@@ -7,24 +7,24 @@ export type VibeResponseContext = {
   time_took_in_seconds: number;
 };
 
-// ===== filter shape (T024 · verified with autocomplete +
-//                    fetch-entities-statistics) =====
+// ===== filter shape (T024 · verified against real API 422s) =====
 //
-// Vibe expone claves separadas para país de la empresa y país del
-// prospect (útil cuando queremos empresas ES pero prospects
-// residentes ES). También expone has_contact_details como filtro
-// dedicado ({ value: "email" }) para que el fetch solo devuelva
-// leads con email (evita gastar créditos en filas hasheadas).
+// La API cruda de Explorium (/prospects/stats, /prospects) acepta
+// company_country_code para país de la empresa. NO expone
+// prospect_country_code — ese nombre es del conector MCP y devuelve
+// 422 "extra fields not permitted" en la API directa (verificado
+// 2026-09-25). Si en el futuro queremos filtrar por país del contacto,
+// probar country_code con un probe gratis a /prospects/stats antes de
+// añadirlo al tipo (BACKLOG).
+//
+// has_contact_details ({ value: "email" }) fuerza que el fetch solo
+// devuelva prospects con email disponible (evita gastar créditos en
+// filas hasheadas).
 //
 // linkedin_category es la taxonomía LinkedIn en cadenas literales
 // (verificadas por autocomplete); NO se "arreglan" ni se normalizan.
 export type VibeApiFilters = {
   company_country_code?: { values: string[] };
-  prospect_country_code?: { values: string[] };
-  // Legacy: pre-T024 el fetch usaba country_code genérico. Se mantiene
-  // el tipo por si un ICP futuro lo prefiere, pero las plantillas
-  // actuales usan las variantes company/prospect por separado.
-  country_code?: { values: string[] };
   linkedin_category?: { values: string[] };
   company_size?: { values: string[] };
   job_level?: { values: string[] };

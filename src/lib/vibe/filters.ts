@@ -25,33 +25,20 @@ export function resolveVibeApiFilters(
     );
   }
   const resolved: VibeApiFilters = { ...base };
-  if (countryOverrides && countryOverrides.length > 0) {
-    const values = [...countryOverrides];
-    if (base.company_country_code) {
-      resolved.company_country_code = { values };
-    }
-    if (base.prospect_country_code) {
-      resolved.prospect_country_code = { values };
-    }
-    if (base.country_code) {
-      resolved.country_code = { values };
-    }
+  if (
+    countryOverrides &&
+    countryOverrides.length > 0 &&
+    base.company_country_code
+  ) {
+    resolved.company_country_code = { values: [...countryOverrides] };
   }
   return resolved;
 }
 
 /**
  * Devuelve los códigos de país declarados por el ICP (defaults para
- * el pre-fill del form). Prefiere prospect_country_code (nivel más
- * granular, contactos residentes) sobre company_country_code.
+ * el pre-fill del form).
  */
 export function defaultCountriesFromIcp(icp: IcpTemplate): readonly string[] {
-  const base = icp.vibeFilters;
-  if (!base) return [];
-  return (
-    base.prospect_country_code?.values ??
-    base.company_country_code?.values ??
-    base.country_code?.values ??
-    []
-  );
+  return icp.vibeFilters?.company_country_code?.values ?? [];
 }

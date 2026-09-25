@@ -198,7 +198,6 @@ function FilterForm({
   icp: IcpTemplate;
   uiFilters: { icpSlug: string; countries: string[]; limit: number };
 }) {
-  const base = icp.vibeFilters!;
   return (
     <form
       action={estimateFetchAction}
@@ -238,17 +237,10 @@ function FilterForm({
           ))}
         </div>
         <p className="mt-2 text-xs text-muted">
-          Se aplica a{" "}
-          <code>
-            {[
-              base.company_country_code && "company_country_code",
-              base.prospect_country_code && "prospect_country_code",
-              base.country_code && "country_code",
-            ]
-              .filter(Boolean)
-              .join(" + ")}
-          </code>
-          .
+          Se aplica a <code>company_country_code</code>. Filtrar por país
+          del contacto (<code>country_code</code>) requiere probe primero
+          — el conector MCP usa <code>prospect_country_code</code> pero
+          la API cruda lo rechaza con 422.
         </p>
       </div>
 

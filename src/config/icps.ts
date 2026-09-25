@@ -144,9 +144,11 @@ const industrialPremiumEs_legalFooter = `<p style="font-size:12px;color:#6B6B6B"
 // autocomplete + fetch-entities-statistics (gratis): 1.785 prospects
 // con email disponibles con este set. NO se normalizan los valores de
 // linkedin_category — son literales de la taxonomía LinkedIn.
+//
+// prospect_country_code se eliminó tras un 422 real: es del conector
+// MCP, no de la API cruda de Explorium (ver VibeApiFilters).
 const industrialPremiumEs_vibeFilters: VibeApiFilters = {
   company_country_code: { values: ["ES"] },
-  prospect_country_code: { values: ["ES"] },
   linkedin_category: {
     values: [
       "machinery manufacturing",
