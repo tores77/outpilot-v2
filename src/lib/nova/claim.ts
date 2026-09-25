@@ -9,43 +9,28 @@
 //   concurrency + sin claim, cada run leyó los mismos leads sin score
 //   y habría llamado a Haiku sobre la misma batch.
 //
-// Modelo (columna 005_leads_scoring_claim):
-//   icp_score IS NULL, scoring_claimed_at IS NULL      → pendiente
-//   icp_score IS NULL, scoring_claimed_at = <ts>       → reclamado
-//   icp_score IS NOT NULL, scoring_claimed_at IS NULL  → puntuado
+// Modelo (columnas 005_leads_scoring_claim + 007_leads_scoring_error):
+//   icp_score IS NULL, scoring_claimed_at IS NULL, scoring_error IS NULL
+//     → pendiente
+//   icp_score IS NULL, scoring_claimed_at = <ts>, scoring_error IS NULL
+//     → reclamado por un run
+//   icp_score IS NULL, scoring_claimed_at IS NULL, scoring_error != NULL
+//     → excluido del claim (fallo previo; humano investiga)
+//   icp_score IS NOT NULL, scoring_claimed_at IS NULL, scoring_error IS NULL
+//     → puntuado (fin)
 //
 // El finalize del job pone icp_score + resto de campos Y limpia
 // scoring_claimed_at en la misma UPDATE (con guard atómico sobre el
 // claim_started_at que tenía este run).
-//
-// NOTA: cast temporal a `unknown` sobre supabase-js hasta que Pere
-// aplique 005 y regenere database.types.ts. El cliente-JS acepta la
-// columna a runtime (Postgres la tiene tras la migración); solo el
-// tipo generado no la conoce todavía. Se elimina en el commit
-// posterior al regen de tipos.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 
 type LeadRow = Database["public"]["Tables"]["leads"]["Row"];
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
-// Row shape con la columna nueva (hasta regen).
-type LeadWithClaim = LeadRow & { scoring_claimed_at: string | null };
-
-// Fuerza al cliente supabase a aceptar la columna nueva y los chains
-// laxos que Postgrest permite. Todos los helpers de este módulo van
-// contra `leads` así que centralizamos el cast aquí.
-function asUntyped(supabase: SupabaseClient<Database>): {
-  from: (table: string) => Record<string, (...args: unknown[]) => unknown>;
-} {
-  return supabase as unknown as {
-    from: (table: string) => Record<string, (...args: unknown[]) => unknown>;
-  };
-}
-
 export type ClaimedLead = {
-  lead: LeadWithClaim;
+  lead: LeadRow;
   claim_started_at: string;
 };
 
@@ -60,9 +45,8 @@ export async function sweepStaleScoringClaims(
 ): Promise<number> {
   const { tenantId, staleMs } = args;
   const staleThreshold = new Date(Date.now() - staleMs).toISOString();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q: any = asUntyped(supabase).from("leads");
-  const { data, error } = await q
+  const { data, error } = await supabase
+    .from("leads")
     .update({ scoring_claimed_at: null })
     .eq("tenant_id", tenantId)
     .not("scoring_claimed_at", "is", null)
@@ -74,11 +58,12 @@ export async function sweepStaleScoringClaims(
 
 /**
  * Reserva atómica: intenta reclamar hasta `limit` leads con icp_score
- * IS NULL AND scoring_claimed_at IS NULL, escribiendo el timestamp
- * actual. Devuelve solo los leads efectivamente reclamados. La
- * carrera es benigna: dos runs concurrentes pueden intentar reclamar
- * los mismos IDs pero la UPDATE con guard .is(scoring_claimed_at, null)
- * solo deja pasar al primero.
+ * IS NULL AND scoring_claimed_at IS NULL AND scoring_error IS NULL,
+ * escribiendo el timestamp actual. Devuelve solo los leads
+ * efectivamente reclamados. La carrera es benigna: dos runs
+ * concurrentes pueden intentar reclamar los mismos IDs pero la
+ * UPDATE con guard .is(scoring_claimed_at, null) solo deja pasar
+ * al primero.
  */
 export async function claimPendingScoring(
   supabase: SupabaseClient<Database>,
@@ -89,9 +74,8 @@ export async function claimPendingScoring(
   // Fase 1: candidatos ordenados por created_at ASC (los más antiguos
   // primero, misma política que el fetch original de nova-score).
   // Excluye scoring_error != NULL — batches fallidos NO se re-reclaman.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q1: any = asUntyped(supabase).from("leads");
-  const { data: candidates, error: selErr } = await q1
+  const { data: candidates, error: selErr } = await supabase
+    .from("leads")
     .select("id")
     .eq("tenant_id", tenantId)
     .is("icp_score", null)
@@ -102,13 +86,12 @@ export async function claimPendingScoring(
   if (selErr) throw new Error(`claim select failed: ${selErr.message}`);
   if (!candidates || candidates.length === 0) return [];
 
-  const ids: string[] = candidates.map((c: { id: string }) => c.id);
+  const ids = candidates.map((c) => c.id);
   const startedAt = new Date().toISOString();
 
   // Fase 2: UPDATE con race guard (misma exclusión de scoring_error).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q2: any = asUntyped(supabase).from("leads");
-  const { data: claimed, error: upErr } = await q2
+  const { data: claimed, error: upErr } = await supabase
+    .from("leads")
     .update({ scoring_claimed_at: startedAt })
     .eq("tenant_id", tenantId)
     .in("id", ids)
@@ -119,10 +102,37 @@ export async function claimPendingScoring(
   if (upErr) throw new Error(`claim update failed: ${upErr.message}`);
   if (!claimed) return [];
 
-  return (claimed as LeadWithClaim[]).map((lead) => ({
-    lead,
-    claim_started_at: startedAt,
-  }));
+  return claimed.map((lead) => ({ lead, claim_started_at: startedAt }));
+}
+
+/**
+ * Libera un batch de claims (los devuelve a NULL) sin escribir score.
+ * Se usa cuando Haiku FALLA a nivel de red (5xx, timeout — transitorio)
+ * y queremos que el próximo click pueda reintentar ese batch sin
+ * esperar al TTL. Para errores persistentes de parseo, usar
+ * markScoringError (que además excluye del claim futuro).
+ * Guard sobre el claim_started_at: solo libera si el claim sigue
+ * siendo el nuestro.
+ */
+export async function releaseScoringClaims(
+  supabase: SupabaseClient<Database>,
+  args: {
+    tenantId: string;
+    leadIds: string[];
+    claimStartedAt: string;
+  },
+): Promise<number> {
+  const { tenantId, leadIds, claimStartedAt } = args;
+  if (leadIds.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ scoring_claimed_at: null })
+    .eq("tenant_id", tenantId)
+    .in("id", leadIds)
+    .eq("scoring_claimed_at", claimStartedAt)
+    .select("id");
+  if (error) throw new Error(`release failed: ${error.message}`);
+  return (data ?? []).length;
 }
 
 /**
@@ -147,47 +157,17 @@ export async function markScoringError(
 ): Promise<number> {
   const { tenantId, leadIds, claimStartedAt, errorPayload } = args;
   if (leadIds.length === 0) return 0;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q: any = asUntyped(supabase).from("leads");
-  const { data, error } = await q
+  const { data, error } = await supabase
+    .from("leads")
     .update({
       scoring_claimed_at: null,
-      scoring_error: errorPayload,
+      scoring_error: errorPayload as Json,
     })
     .eq("tenant_id", tenantId)
     .in("id", leadIds)
     .eq("scoring_claimed_at", claimStartedAt)
     .select("id");
   if (error) throw new Error(`mark-error failed: ${error.message}`);
-  return (data ?? []).length;
-}
-
-/**
- * Libera un batch de claims (los devuelve a NULL) sin escribir score.
- * Se usa cuando el parseo de la respuesta de Haiku falla y queremos
- * que el próximo click pueda reintentar ese batch sin esperar al TTL.
- * Guard sobre el claim_started_at: solo libera si el claim sigue
- * siendo el nuestro (evita pisar un run posterior que ya reclamó).
- */
-export async function releaseScoringClaims(
-  supabase: SupabaseClient<Database>,
-  args: {
-    tenantId: string;
-    leadIds: string[];
-    claimStartedAt: string;
-  },
-): Promise<number> {
-  const { tenantId, leadIds, claimStartedAt } = args;
-  if (leadIds.length === 0) return 0;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q: any = asUntyped(supabase).from("leads");
-  const { data, error } = await q
-    .update({ scoring_claimed_at: null })
-    .eq("tenant_id", tenantId)
-    .in("id", leadIds)
-    .eq("scoring_claimed_at", claimStartedAt)
-    .select("id");
-  if (error) throw new Error(`release failed: ${error.message}`);
   return (data ?? []).length;
 }
 
@@ -208,11 +188,9 @@ export async function finalizeScore(
   },
 ): Promise<boolean> {
   const { tenantId, leadId, claimStartedAt, update } = args;
-  const merged = { ...update, scoring_claimed_at: null };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q: any = asUntyped(supabase).from("leads");
-  const { data, error } = await q
-    .update(merged)
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ ...update, scoring_claimed_at: null })
     .eq("tenant_id", tenantId)
     .eq("id", leadId)
     .eq("scoring_claimed_at", claimStartedAt)
@@ -225,6 +203,7 @@ export async function finalizeScore(
  * Cuenta pendientes vs procesando para la UI del botón:
  *   - activePending: icp_score NULL y (scoring_claimed_at NULL O stale)
  *   - activeProcessing: icp_score NULL y scoring_claimed_at fresco
+ *   - errored: icp_score NULL y scoring_error != NULL (excluidos)
  *
  * "Fresco" = dentro de staleMs. El sweep del próximo trigger devolverá
  * los stale a NULL. Desde el punto de vista del usuario los stale son
@@ -240,10 +219,8 @@ export async function countScoringPending(
   errored: number;
 }> {
   const { tenantId, staleMs } = args;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const q: any = asUntyped(supabase).from("leads");
-  const { data, error } = await q
+  const { data, error } = await supabase
+    .from("leads")
     .select("scoring_claimed_at, scoring_error")
     .eq("tenant_id", tenantId)
     .is("icp_score", null);
@@ -254,10 +231,7 @@ export async function countScoringPending(
   let processingActive = 0;
   let processingStale = 0;
   let errored = 0;
-  for (const row of (data ?? []) as Array<{
-    scoring_claimed_at: string | null;
-    scoring_error: unknown;
-  }>) {
+  for (const row of data ?? []) {
     // Leads con error previo NO cuentan como pendientes ni procesando.
     // Bloqueados hasta que un humano limpie scoring_error.
     if (row.scoring_error !== null) {
