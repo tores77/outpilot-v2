@@ -25,6 +25,7 @@ describe("parseLexResponse", () => {
         opener: "x",
         personalization: "personalized",
         fields_used: ["company"],
+        company_display: null,
         reason_if_generic: null,
       }) +
       "\n```";
@@ -39,6 +40,7 @@ describe("parseLexResponse", () => {
         opener: "x",
         personalization: "personalized",
         fields_used: ["company"],
+        company_display: null,
         reason_if_generic: null,
       }) +
       "\n\nEspero que sirva.";
@@ -160,6 +162,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "",
         personalization: "generic",
         fields_used: ["company"], // cita algo aunque sea generic — no importa
+        company_display: null,
         reason_if_generic: "x",
       },
       fieldMap,
@@ -173,6 +176,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "Vi que Acme fabrica válvulas.",
         personalization: "personalized",
         fields_used: ["company", "website_summary"],
+        company_display: null,
         reason_if_generic: null,
       },
       fieldMap,
@@ -187,6 +191,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "Vi que sois de Valencia.",
         personalization: "personalized",
         fields_used: ["city"], // no está en fieldMap
+        company_display: null,
         reason_if_generic: null,
       },
       fieldMap,
@@ -203,6 +208,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "x",
         personalization: "personalized",
         fields_used: ["city"],
+        company_display: null,
         reason_if_generic: null,
       },
       partial,
@@ -217,6 +223,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "   ",
         personalization: "personalized",
         fields_used: ["company"],
+        company_display: null,
         reason_if_generic: null,
       },
       fieldMap,
@@ -232,6 +239,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: long,
         personalization: "personalized",
         fields_used: ["company"],
+        company_display: null,
         reason_if_generic: null,
       },
       fieldMap,
@@ -246,6 +254,7 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
         opener: "x",
         personalization: "personalized",
         fields_used: [],
+        company_display: null,
         reason_if_generic: null,
       },
       fieldMap,

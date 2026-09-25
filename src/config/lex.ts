@@ -29,7 +29,9 @@ export const LEX_MAX_TOKENS = 400;
 
 // Versión del shape de campaign_leads.personalization. Bump si el
 // schema en response.ts cambia.
-export const LEX_PERSONALIZATION_VERSION = 1;
+//   v1 (T022): opener, personalization, fields_used, reason_if_generic
+//   v2 (T024): + company_display: string | null (capitalización correcta)
+export const LEX_PERSONALIZATION_VERSION = 2;
 
 // TTL para claims stuck en state='processing'. Un run que muere a
 // medias deja el lead marcado como processing sin escribir el resultado

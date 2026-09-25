@@ -343,6 +343,7 @@ async function processLead(
       opener: gated.opener,
       personalization: gated.personalization,
       fields_used: gated.fields_used,
+      company_display: gated.company_display,
       reason_if_generic: gated.reason_if_generic,
       model: claudeResult.usage.model,
       generated_at: new Date().toISOString(),

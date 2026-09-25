@@ -1,4 +1,4 @@
-// OUTPILOT v2 — Lex response parser (T022)
+// OUTPILOT v2 — Lex response parser (T022 · +T024 company_display)
 // -----------------------------------------------------------------------------
 // Parseo tolerante del JSON de vuelta de Haiku + gate mecánico
 // anti-fabricación sobre `fields_used`.
@@ -8,6 +8,7 @@
 //     "opener": string,
 //     "personalization": "personalized" | "generic",
 //     "fields_used": string[],
+//     "company_display": string | null,   // T024
 //     "reason_if_generic": string | null
 //   }
 //
@@ -16,6 +17,12 @@
 // un campo vacío o inventado, degradamos a "generic" con reason
 // "cited_empty_field: <field>" — regla anti-fabricación NO solo por
 // prompt.
+//
+// company_display es independiente del gate: representa la
+// capitalización correcta que Lex leyó del website (título, H1) o
+// copió literal del campo `company`. Se preserva incluso en degrade
+// a generic, porque el consumidor (Volt) lo usa para el {{companyName}}
+// enviado a Lemlist y no depende del opener.
 
 import { z } from "zod";
 
@@ -23,6 +30,14 @@ export const lexResponseSchema = z.object({
   opener: z.string(),
   personalization: z.enum(["personalized", "generic"]),
   fields_used: z.array(z.string()),
+  // Tolerante a respuestas legacy o modelos que omiten el campo.
+  // Nullish (null | undefined | string) + transform a `string | null`
+  // para simplificar los consumidores. El caller (Volt) trata null
+  // como fallback a lead.company.
+  company_display: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? null),
   reason_if_generic: z.string().nullable(),
 });
 
@@ -103,6 +118,7 @@ function failGeneric(reason: string): LexResponse {
     opener: "",
     personalization: "generic",
     fields_used: [],
+    company_display: null,
     reason_if_generic: reason,
   };
 }
@@ -156,6 +172,10 @@ function degrade(response: LexResponse, reason: string): LexResponse {
     opener: "",
     personalization: "generic",
     fields_used: response.fields_used,
+    // Preservamos company_display: es info independiente del opener
+    // (capitalización de la empresa) y Volt la sigue usando para
+    // {{companyName}} incluso cuando degradamos a generic.
+    company_display: response.company_display,
     reason_if_generic: reason,
   };
 }

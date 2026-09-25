@@ -187,4 +187,59 @@ describe("buildAddLeadPersonalization", () => {
     // {{signature}} se deja para que Lemlist lo expanda (aunque
     // openerFallback estándar no lo lleva).
   });
+
+  it("T024 company_display: si Lex lo devuelve, gana sobre lead.company (Vibe suele darlo en MAYÚSCULAS)", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "Vi que Metales del Sur fabrica válvulas.",
+      company_display: "Metales del Sur",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "Pepe",
+        last_name: "López",
+        // Company en la BD viene en TODO MAYÚSCULAS de Vibe.
+        company: "METALES DEL SUR S.L.",
+      },
+    });
+    expect(map.companyName).toBe("Metales del Sur");
+  });
+
+  it("T024 company_display: null/undefined → fallback a lead.company (compat con v1 payloads)", () => {
+    // Sin company_display en el payload (v1).
+    const p = {
+      personalization: "personalized",
+      opener: "algo",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "X",
+        last_name: "Y",
+        company: "ACME S.L.",
+      },
+    });
+    expect(map.companyName).toBe("ACME S.L.");
+  });
+
+  it("T024 company_display: string vacío o blank NO gana (fallback a lead.company)", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "algo",
+      company_display: "   ",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "X",
+        last_name: "Y",
+        company: "ACME",
+      },
+    });
+    expect(map.companyName).toBe("ACME");
+  });
 });

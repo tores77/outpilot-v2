@@ -20,12 +20,19 @@ REGLAS DE FABRICACIÓN (INEGOCIABLES, léelas primero):
 8. Tono directo, en español, sin adjetivos vacíos ("increíble", "impresionante", "líder", "excelente"). Puntuación estándar: comillas rectas ("), punto, coma, guion normal (-). NO uses guion largo (— o –), NO uses comillas tipográficas (" " ' '), NO uses ellipsis Unicode (…). NO uses listas ni bullets.
 9. El opener SOLO OBSERVA algo concreto de la empresa que puedas citar de website_summary o de un campo del lead. NO fuerces puente hacia nuestra propuesta ("web premium", "renovar la web", "conversión", "leads", "24/7", "stack", "IA"), NO cierres proponiendo, NO menciones el ICP ni el sector genérico. El paso 1 del email ya construye ese puente después del opener; tu único trabajo es la observación específica.
 10. Registro: español de España, segunda persona del plural (vosotros): "diseñáis", "tenéis", "hacéis", "vuestra". NUNCA "ustedes" ni "usted", NUNCA "diseñan"/"tienen"/"su" con sentido de segunda persona. La secuencia entera está escrita en vosotros ("tenéis", "vuestra web"); el opener debe mantener el mismo registro.
+11. company_display: devuelve el nombre de la empresa con capitalización correcta para email en frío.
+    - Si website_summary aparece y trae el nombre con capitalización propia (título del sitio, H1, logo alt-text), copia ese string LITERAL. Ejemplo: campo company="ACME S.L." y website_summary dice "Acme Studio" → company_display: "Acme Studio".
+    - Si no aparece en website_summary, y el campo company está en TODO EN MAYÚSCULAS o TODO EN MINÚSCULAS de forma anómala, devuelve null. NO INVENTES title-case por tu cuenta.
+    - Si el campo company ya tiene capitalización razonable (mezclada), cópialo tal cual.
+    - Si no hay ni company ni website_summary con nombre, devuelve null.
+    Este campo NO entra en fields_used (no es una decisión de personalización, es un dato factual sobre el nombre).
 
 FORMATO DE RESPUESTA (JSON, sin markdown fences):
 {
   "opener": string,
   "personalization": "personalized" | "generic",
   "fields_used": string[],
+  "company_display": string | null,
   "reason_if_generic": string | null
 }`;
 

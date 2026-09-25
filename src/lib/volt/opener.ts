@@ -120,18 +120,30 @@ export function resolveOpener(args: {
  * nosotros SÍ resolvemos {{companyName}} DENTRO del opener (via
  * resolveOpener) porque no queremos depender de que Lemlist haga
  * substitución recursiva.
+ *
+ * T024: si el personalization payload de Lex trae `company_display`
+ * (v2+), se prefiere sobre `lead.company` para el {{companyName}} que
+ * Lemlist substituye — Vibe suele darnos el company en TODO MAYÚSCULAS
+ * ("METALES DEL SUR S.L."), y el email debe leer "Metales del Sur"
+ * si la web de la empresa lo capitaliza así. Fallback a lead.company
+ * si Lex devolvió null (v1 sin campo, o no encontró capitalización).
  */
 export function buildAddLeadPersonalization(args: {
   personalization: unknown;
   openerFallback: string;
   lead: LeadForOpener;
 }): Record<string, string> {
-  const { lead } = args;
+  const { lead, personalization } = args;
   const opener = resolveOpener(args);
+  const p = (personalization ?? {}) as { company_display?: unknown };
+  const companyDisplay =
+    typeof p.company_display === "string" && p.company_display.trim() !== ""
+      ? p.company_display.trim()
+      : null;
   return {
     firstName: lead.first_name ?? "",
     lastName: lead.last_name ?? "",
-    companyName: lead.company ?? "",
+    companyName: companyDisplay ?? lead.company ?? "",
     opener,
   };
 }
