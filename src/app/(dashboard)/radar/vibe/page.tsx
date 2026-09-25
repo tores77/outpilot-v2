@@ -13,6 +13,8 @@ import {
   defaultCountriesFromIcp,
   resolveVibeApiFilters,
 } from "@/lib/vibe/filters";
+import { getCreditsBalance } from "@/lib/vibe/client";
+import type { VibeCreditsResponse } from "@/lib/vibe/types";
 import { verifyEstimate } from "@/lib/vibe/token";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -62,12 +64,18 @@ export default async function VibeFetchPage({
 
   const errorMessage = sp.error ? ERROR_MESSAGES[sp.error] ?? "Error." : null;
 
+  // Saldo real de la cuenta Vibe/Explorium a la que pertenece la API
+  // key de la app. Gratis (GET /credits). Puede diferir del panel de
+  // usuario en explorium.ai — la API es la fuente de verdad.
+  const credits = await getCreditsBalance();
+
   // Sin ICP en la URL → picker inicial.
   const icp = sp.icp ? getIcpBySlug(sp.icp) : null;
   if (!icp || !icp.vibeFilters) {
     return (
       <section className="max-w-3xl space-y-8">
         <Header confirmMode={false} />
+        <CreditsBanner credits={credits} />
         {errorMessage && (
           <ErrorBanner message={errorMessage} detail={sp.detail} />
         )}
@@ -106,6 +114,7 @@ export default async function VibeFetchPage({
   return (
     <section className="max-w-3xl space-y-8">
       <Header confirmMode={confirmMode} />
+      <CreditsBanner credits={credits} />
       {errorMessage && <ErrorBanner message={errorMessage} detail={sp.detail} />}
       {confirmMode && matches !== null ? (
         <ConfirmView
@@ -138,6 +147,53 @@ function Header({ confirmMode }: { confirmMode: boolean }) {
       >
         ← Volver a Radar
       </Link>
+    </div>
+  );
+}
+
+function CreditsBanner({
+  credits,
+}: {
+  credits: VibeCreditsResponse | null;
+}) {
+  if (!credits) {
+    return (
+      <div className="rounded-md border border-hairline bg-surface px-4 py-2 text-xs text-muted">
+        Saldo Vibe: <span className="text-foreground">no disponible</span>{" "}
+        (endpoint <code>GET /credits</code> falló).
+      </div>
+    );
+  }
+  const pct =
+    credits.allocated_credits > 0
+      ? Math.round(
+          (credits.remaining_credits / credits.allocated_credits) * 100,
+        )
+      : 0;
+  const low = credits.remaining_credits < credits.allocated_credits * 0.15;
+  return (
+    <div
+      className={`rounded-md border px-4 py-2 text-xs ${
+        low
+          ? "border-amber-400 bg-amber-100 text-amber-900"
+          : "border-hairline bg-surface text-foreground"
+      }`}
+    >
+      <span className="text-muted">Saldo Vibe (API):</span>{" "}
+      <strong className="tabular-nums">
+        {credits.remaining_credits.toLocaleString("es-ES")}
+      </strong>{" "}
+      <span className="text-muted">
+        de {credits.allocated_credits.toLocaleString("es-ES")} ({pct}%)
+      </span>
+      {credits.account_type && (
+        <span className="ml-2 text-muted">
+          · plan <code>{credits.account_type}</code>
+        </span>
+      )}
+      {low && (
+        <span className="ml-2 font-medium">— saldo bajo, cuidado.</span>
+      )}
     </div>
   );
 }

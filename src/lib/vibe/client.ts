@@ -17,6 +17,7 @@ import "server-only";
 import {
   VIBE_BASE_URL,
   VIBE_BULK_ENRICH_ENDPOINT,
+  VIBE_CREDITS_ENDPOINT,
   VIBE_FETCH_ENDPOINT,
   VIBE_MAX_RETRIES,
   VIBE_STATS_ENDPOINT,
@@ -25,6 +26,7 @@ import {
 import type {
   VibeBulkEnrichRequest,
   VibeBulkEnrichResponse,
+  VibeCreditsResponse,
   VibeFetchRequest,
   VibeFetchResponse,
   VibeStatsRequest,
@@ -103,4 +105,32 @@ export function bulkEnrichContacts(
   request: VibeBulkEnrichRequest,
 ): Promise<VibeBulkEnrichResponse> {
   return vibeRequest(VIBE_BULK_ENRICH_ENDPOINT, request);
+}
+
+/**
+ * GET /credits (gratis, sin body). Sin reintentos agresivos — si el
+ * endpoint de saldo falla, no queremos bloquear el fetch principal;
+ * devolvemos null y la UI muestra "no disponible".
+ */
+export async function getCreditsBalance(): Promise<VibeCreditsResponse | null> {
+  const key = process.env.VIBE_API_KEY;
+  if (!key) return null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), VIBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${VIBE_BASE_URL}${VIBE_CREDITS_ENDPOINT}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        api_key: key,
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as VibeCreditsResponse;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }

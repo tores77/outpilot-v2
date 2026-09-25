@@ -119,6 +119,20 @@ export type VibeBulkEnrichResponse = {
   entity_id?: string | null;
 };
 
+// ===== credits =====
+//
+// GET /credits (gratis, sin body). Descubierto en probe 2026-09-25
+// tras el hallazgo de que la key del app pertenece a una cuenta
+// distinta que la del panel de Pere: la fuente de verdad para el
+// saldo es la propia API, no el dashboard web.
+
+export type VibeCreditsResponse = {
+  response_context?: VibeResponseContext;
+  allocated_credits: number;
+  remaining_credits: number;
+  account_type?: string;
+};
+
 // ===== UI-level filters (form) =====
 //
 // T024: la UI se reduce a elegir un ICP (que trae los filtros duros

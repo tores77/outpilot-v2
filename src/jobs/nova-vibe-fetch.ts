@@ -34,6 +34,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import {
   bulkEnrichContacts,
   fetchProspectsPage,
+  getCreditsBalance,
 } from "@/lib/vibe/client";
 import {
   extractFetchProspects,
@@ -136,6 +137,15 @@ export const novaVibeFetch = inngest.createFunction(
     // Filtro API resuelto por la server action; se envía tal cual a
     // stats (ya lo hizo) y a fetchProspectsPage (aquí).
     const serverFilters = params.apiFilters;
+
+    // ===== 0. Snapshot del saldo Vibe ANTES del fetch =====
+    // GET /credits es gratis. Guardamos el remaining antes/después
+    // para calibrar la heurística de crédito por lead contra el
+    // consumo real de la API (no el panel web del usuario, que puede
+    // pertenecer a otra cuenta).
+    const creditsBefore = await step.run("credits-before", () =>
+      getCreditsBalance(),
+    );
 
     // ===== 1. FETCH pages =====
     const totalPages = Math.ceil(params.limit / VIBE_PAGE_SIZE);
@@ -299,6 +309,15 @@ export const novaVibeFetch = inngest.createFunction(
 
     const totalLatencyMs = Date.now() - startedAt;
 
+    // ===== Snapshot del saldo Vibe DESPUÉS =====
+    const creditsAfter = await step.run("credits-after", () =>
+      getCreditsBalance(),
+    );
+    const creditsChargedReal =
+      creditsBefore && creditsAfter
+        ? creditsBefore.remaining_credits - creditsAfter.remaining_credits
+        : null;
+
     // ===== 7. api_costs: TWO rows so the Daily Brief can split =====
     await step.run("record-cost-fetch", async () => {
       const { error } = await supabase.from("api_costs").insert({
@@ -354,6 +373,16 @@ export const novaVibeFetch = inngest.createFunction(
           cost_enrich_credits: enrichCreditsSpent,
           cost_total_credits: fetchCreditsSpent + enrichCreditsSpent,
           cost_source: "estimated",
+          // T024 calibración: saldo real reportado por GET /credits
+          // antes/después. `credits_charged_real` es la diferencia
+          // — es la fuente de verdad para calibrar la heurística
+          // por lead. `credits_charged_real` null = probe del saldo
+          // falló (no bloquea el fetch).
+          credits_before: creditsBefore?.remaining_credits ?? null,
+          credits_after: creditsAfter?.remaining_credits ?? null,
+          credits_charged_real: creditsChargedReal,
+          credits_allocated: creditsBefore?.allocated_credits ?? null,
+          account_type: creditsBefore?.account_type ?? null,
         },
       });
       if (error) console.error("[nova-vibe-fetch] events insert failed", error);
@@ -382,6 +411,8 @@ export const novaVibeFetch = inngest.createFunction(
         enrich: enrichCreditsSpent,
         total: fetchCreditsSpent + enrichCreditsSpent,
       },
+      credits_charged_real: creditsChargedReal,
+      credits_after: creditsAfter?.remaining_credits ?? null,
       latency_ms: totalLatencyMs,
     };
   },
