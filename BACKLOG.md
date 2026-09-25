@@ -157,21 +157,61 @@ Decisión de Pere antes del smoke real. Si se quita una:
 
 No urgente; anotar para el gate T024.
 
-### Cleanup pre-smoke T024 — leads no aptos en Smoke 50
+### Guardarraíles de entregabilidad → T025
 
-Los 2 leads del smoke actual de "Industrial Premium ES · Smoke 50"
-son de test, no aptos para envío real:
-- Jose Perez / Product hackers: real, pero fuera de ICP (Product
-  Hackers no es fabricante industrial premium; está en el pool solo
-  para verificar el path "personalized" con website_summary).
-- Ana García: dominio inventado (`example.com` o similar), rebotará
-  al primer envío.
+Cuando lleguen los primeros webhooks reales de Lemlist
+(`emailsSent`, `emailsBounced`, `emailsUnsubscribed`, etc.), añadir
+en el pipeline de touchpoints (T025) o en Sage (T035):
 
-Antes de que T024 lance el smoke real a Lemlist, ambos deben:
-1. `UPDATE campaign_leads SET removed_at = now() WHERE ...`.
-2. Borrarse en Lemlist UI (o via DELETE endpoint).
+- **Alerta si bounce rate > 2% en ventana móvil de 24h.** Si supera
+  → pausar campaña automáticamente (delegar al provider vía
+  `PATCH /campaigns/:cid` o `POST /campaigns/:cid/pause` — verificar
+  endpoint antes) y notificar en el Daily Brief.
+- **Auto-exclusión de dominio** si un dominio produce ≥3 hard
+  bounces en una campaña: añadir todos los leads con ese dominio a
+  `outreach_exclusions` con `reason='lemlist_bounced_domain'`.
+- **Rate limit por mailbox**: verificar que se respeta el
+  `emailLimit` de cada mailbox visto en `/settings`. Si Lemlist se
+  pasa (visto en histórico), aplicar cap client-side en Volt.
+- **Detección de queja formal** (`emailsUnsubscribed` con `reason='complaint'`
+  o similar) → excluir + alerta inmediata.
 
-T024 debe incluirlo como paso previo con gate humano explícito.
+No implementar en T024. T024 hace el smoke; T025 procesa los
+webhooks y decide qué guardarraíles necesitamos con evidencia real.
+
+### Import de `outreach_exclusions` — script pendiente
+
+La tabla `outreach_exclusions` (migración 004c) está vacía. Pere pasa
+los CSV de:
+
+- Emails ya contactados en campañas Lemlist previas (export desde
+  Lemlist UI o API).
+- Unsubscribes globales (export desde Lemlist UI).
+
+Script `scripts/import-outreach-exclusions.mjs` a escribir cuando
+lleguen los CSV. Formato esperado: CSV con columna `email` y
+opcionalmente `source`/`notes`. Insert con `ON CONFLICT DO NOTHING`
+sobre el PK `(tenant_id, lower(email))`. Log de duplicados
+descartados.
+
+### Cleanup pre-smoke T024 — RESUELTO (decisión sesión 2026-09-25)
+
+La estrategia acordada NO borra a Jose ni a Ana:
+- La campaña "Industrial Premium ES · Smoke 50" vigente se marca
+  `status='done'` en BD (script
+  `supabase/scripts/t024_mark_smoke50_done.sql`). Pere la archiva
+  en Lemlist UI aparte.
+- Sus 2 campaign_leads permanecen linkeados a la campaña `done` con
+  `removed_at=NULL` — quedan como registro histórico.
+- La nueva campaña "Industrial Premium ES · Smoke 50 · Oct 2026" se
+  crea desde cero (Pere desde `/campaigns/new` con el template
+  actualizado cuando llegue el copy).
+- El filtro `NOT EXISTS (... WHERE removed_at IS NULL)` de
+  `selectSmokeCandidates` (`src/lib/volt/candidates.ts`) excluye
+  automáticamente a Jose y Ana de cualquier smoke futuro — no se les
+  contactará dos veces aunque la campaña original esté `done`.
+
+Sin acción manual pendiente para esta parte.
 
 ### Prevenir em-dash en el opener via prompt (no solo sanitizador)
 

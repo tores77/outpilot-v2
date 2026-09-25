@@ -155,6 +155,7 @@ export type Database = {
           provider: Database["public"]["Enums"]["channel_provider"]
           provider_external_id: string | null
           sequence: Json
+          smoke_size: number | null
           status: Database["public"]["Enums"]["campaign_status"]
           tenant_id: string
           updated_at: string
@@ -168,6 +169,7 @@ export type Database = {
           provider: Database["public"]["Enums"]["channel_provider"]
           provider_external_id?: string | null
           sequence?: Json
+          smoke_size?: number | null
           status?: Database["public"]["Enums"]["campaign_status"]
           tenant_id: string
           updated_at?: string
@@ -181,6 +183,7 @@ export type Database = {
           provider?: Database["public"]["Enums"]["channel_provider"]
           provider_external_id?: string | null
           sequence?: Json
+          smoke_size?: number | null
           status?: Database["public"]["Enums"]["campaign_status"]
           tenant_id?: string
           updated_at?: string

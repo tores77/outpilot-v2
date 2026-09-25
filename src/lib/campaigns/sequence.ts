@@ -49,10 +49,14 @@ export const sequenceStepSchema = z.object({
     }),
 });
 
+const SIGNATURE_PATTERN = /\{\{\s*signature\s*\}\}/;
+
 export const sequenceSchema = z
   .object({
     version: z.literal(1),
     templateSlug: z.string().min(1),
+    // Canal del ICP. Rige reglas legales/estilísticas (ver superRefine).
+    channel: z.enum(["email_cold"]),
     // Texto plano (sin HTML) que Volt sustituye por {{opener}} cuando
     // Lex devuelve personalization: "generic". Regla T022: NUNCA se
     // sustituye por string vacío — el email debe leerse completo.
@@ -64,6 +68,12 @@ export const sequenceSchema = z
         if (result !== true)
           ctx.addIssue({ code: "custom", message: result.message });
       }),
+    // Pie legal (LSSI/RGPD). Obligatorio para channel "email_cold"
+    // (validado en superRefine). sequenceFromTemplate ya sustituyó el
+    // marcador {{legalFooter}} en cada bodyHtml antes de este parse,
+    // así que aquí solo verificamos que el string se guarda con la
+    // sequence para trazabilidad (auditoría legal).
+    legalFooter: z.string().min(1).optional(),
     steps: z.array(sequenceStepSchema).min(1),
   })
   .superRefine((data, ctx) => {
@@ -79,25 +89,65 @@ export const sequenceSchema = z
           "El primer step requiere subject (los siguientes lo omiten para enviar como respuesta en el hilo)",
       });
     }
+
+    // Reglas específicas del canal email_cold.
+    if (data.channel === "email_cold") {
+      if (!data.legalFooter || data.legalFooter.trim() === "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["legalFooter"],
+          message:
+            "legalFooter obligatorio para channel 'email_cold' (LSSI/RGPD)",
+        });
+      }
+      data.steps.forEach((step, i) => {
+        if (step.subject && SIGNATURE_PATTERN.test(step.subject)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["steps", i, "subject"],
+            message:
+              "{{signature}} prohibido en ICPs channel 'email_cold' (la firma va como texto en frío)",
+          });
+        }
+        if (SIGNATURE_PATTERN.test(step.bodyHtml)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["steps", i, "bodyHtml"],
+            message:
+              "{{signature}} prohibido en ICPs channel 'email_cold' (la firma va como texto en frío)",
+          });
+        }
+      });
+    }
   });
 
 export type SequenceStep = z.infer<typeof sequenceStepSchema>;
 export type Sequence = z.infer<typeof sequenceSchema>;
 
+const LEGAL_FOOTER_PLACEHOLDER = /\{\{\s*legalFooter\s*\}\}/g;
+
 /**
  * Copia un template a un sequence listo para persistir. No muta el
  * template (readonly), devuelve un objeto plano indexable por Zod.
+ *
+ * Sustituye el marcador `{{legalFooter}}` de cada bodyHtml por el
+ * HTML de `template.legalFooter` (bake-at-copy-time). Si el template
+ * no lleva legalFooter, el marcador queda como cadena vacía —
+ * sequenceSchema lo rechazará para channel "email_cold".
  */
 export function sequenceFromTemplate(template: IcpTemplate): Sequence {
+  const footerHtml = template.legalFooter ?? "";
   return {
     version: 1,
     templateSlug: template.slug,
+    channel: template.channel,
     openerFallback: template.openerFallback,
+    ...(template.legalFooter ? { legalFooter: template.legalFooter } : {}),
     steps: template.steps.map((s) => ({
       index: s.index,
       delayDays: s.delayDays,
       subject: s.subject,
-      bodyHtml: s.bodyHtml,
+      bodyHtml: s.bodyHtml.replace(LEGAL_FOOTER_PLACEHOLDER, footerHtml),
     })),
   };
 }

@@ -25,6 +25,39 @@ describe("sequenceFromTemplate", () => {
     expect(seq.openerFallback.length).toBeGreaterThan(0);
   });
 
+  it("legalFooter: se copia del template a la sequence y se sustituye el marcador {{legalFooter}} en cada bodyHtml", () => {
+    const t = getIcpBySlug("industrial_premium_es")!;
+    const seq = sequenceFromTemplate(t);
+    // El template industrial_premium_es lleva legalFooter (T024).
+    expect(seq.legalFooter).toBeDefined();
+    expect(seq.legalFooter).toBe(t.legalFooter);
+    // Y todos los bodyHtml quedan sin el marcador (ya resueltos).
+    for (const step of seq.steps) {
+      expect(step.bodyHtml).not.toMatch(/\{\{\s*legalFooter\s*\}\}/);
+    }
+  });
+
+  it("legalFooter: si el template NO lo lleva, el marcador se sustituye por '' y la key no aparece en el sequence", () => {
+    const t = getIcpBySlug("industrial_premium_es")!;
+    const { legalFooter: _drop, ...noFooterTpl } = t;
+    void _drop;
+    const seq = sequenceFromTemplate({
+      ...noFooterTpl,
+      // Marcador crudo en un step para verificar el reemplazo por ''.
+      steps: [
+        {
+          index: 1,
+          delayDays: 0,
+          subject: "hola",
+          bodyHtml: "<p>body</p>\n{{legalFooter}}",
+        },
+      ],
+    });
+    expect(seq.legalFooter).toBeUndefined();
+    expect("legalFooter" in seq).toBe(false);
+    expect(seq.steps[0].bodyHtml).toBe("<p>body</p>\n");
+  });
+
   it("no muta el template", () => {
     const t = getIcpBySlug("industrial_premium_es")!;
     const originalStepCount = t.steps.length;
@@ -57,7 +90,9 @@ describe("sequenceSchema", () => {
   const baseValid = {
     version: 1 as const,
     templateSlug: "industrial_premium_es",
+    channel: "email_cold" as const,
     openerFallback: "Fallback con {{companyName}} dentro.",
+    legalFooter: "<p>Umania Labs SL · dirección · unsub</p>",
     steps: [validStep],
   };
 
@@ -171,6 +206,58 @@ describe("sequenceSchema", () => {
       ],
     });
     expect(r.success).toBe(true);
+  });
+
+  it("channel 'email_cold' requiere legalFooter no vacío", () => {
+    // Con footer → OK (baseValid ya lo trae).
+    expect(sequenceSchema.safeParse(baseValid).success).toBe(true);
+
+    // Sin footer → falla.
+    const { legalFooter: _drop, ...sinFooter } = baseValid;
+    void _drop;
+    const rSin = sequenceSchema.safeParse(sinFooter);
+    expect(rSin.success).toBe(false);
+    if (!rSin.success) {
+      const msgs = rSin.error.issues.map((i) => i.message).join(" | ");
+      expect(msgs).toMatch(/legalFooter obligatorio/i);
+    }
+
+    // Footer vacío → falla (min(1) del campo + superRefine del canal).
+    const rVacio = sequenceSchema.safeParse({ ...baseValid, legalFooter: "" });
+    expect(rVacio.success).toBe(false);
+  });
+
+  it("channel 'email_cold' rechaza {{signature}} en subject de cualquier step", () => {
+    const r = sequenceSchema.safeParse({
+      ...baseValid,
+      steps: [
+        { ...validStep, subject: "Hola {{firstName}} {{signature}}" },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const msgs = r.error.issues.map((i) => i.message).join(" | ");
+      expect(msgs).toMatch(/\{\{signature\}\} prohibido/i);
+    }
+  });
+
+  it("channel 'email_cold' rechaza {{signature}} en bodyHtml de cualquier step", () => {
+    const r = sequenceSchema.safeParse({
+      ...baseValid,
+      steps: [
+        { ...validStep },
+        {
+          index: 2,
+          delayDays: 4,
+          bodyHtml: "<p>seguimiento</p><p>{{signature}}</p>",
+        },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const msgs = r.error.issues.map((i) => i.message).join(" | ");
+      expect(msgs).toMatch(/\{\{signature\}\} prohibido/i);
+    }
   });
 
   it("rechaza subject en step 2+ con variable no permitida", () => {

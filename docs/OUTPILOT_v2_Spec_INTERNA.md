@@ -260,7 +260,7 @@ outpilot-v2/
 - **T021** Builder de secuencias con plantillas precargadas (ICPs validados + restaurantes si aplica)
 - **T022** Lex: job personalización pre-envío (haiku) + fallback genérico
 - **T023** Volt: orquestador Inngest (sleepUntil, ventanas, límites, rotación)
-- **T024** Smoke test nativo (50 leads, evaluación 48h)
+- **T024** Smoke test nativo (50 leads, evaluación 48h). **R2 (aclaración, sesión 2026-09-25): (1) sin open rate — Apple MPP y Gmail invalidan el píxel de apertura; Volt desactiva open tracking en creación de campaña (`tracking.trackOpens=false`) y la decisión GO/NO-GO se toma sobre reply/bounce/quejas, no sobre opens. (2) Ventana real: 48h para señales de entregabilidad (bounce/quejas) y 7 días para respuestas (delays 0/4/1 + ventanas M-X-J alargan la conversación). (3) Umbrales GO/NO-GO: reply ≥3% GO / 1.5-3% iterar / <1.5% no-go; bounce <2% GO / 2-5% iterar / >5% parar; quejas <0.1%. (4) 50 envíos se leen como DIRECCIÓN, no como PRUEBA estadística — para detectar un +20% relativo hacen falta ~1500 por variante. (5) Selección de candidatos: cap de 2 contactos por empresa (evidencia Belkins: 1-2/cuenta 7.8% reply vs 10+ 3.8%), exclusión de emails ya contactados en Lemlist histórico y unsubscribes (tabla `outreach_exclusions`, migración 004c). (6) Pie legal LSSI/RGPD obligatorio en todos los steps (`sequence.legalFooter`, anexado por Volt).**
 - **T025** Webhook Lemlist → touchpoints + transiciones de estado
 - **T026** Tests Volt (secuencia completa con provider mock)
 

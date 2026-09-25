@@ -34,6 +34,7 @@ import {
   findScheduleMatching,
   getCampaignSchedules,
   getCampaignSequences,
+  patchLemlistCampaign,
   patchSchedule,
   type LemlistScheduleBody,
 } from "@/channels/lemlist/campaign-ops";
@@ -41,6 +42,7 @@ import {
   VOLT_ACTIVE_DAYS_PER_WEEK,
   VOLT_DEFAULT_SCHEDULES,
 } from "@/config/lemlist";
+import { VOLT_DISABLE_OPEN_TRACKING } from "@/config/volt";
 import {
   composeAddStepBody,
   describeStep,
@@ -172,6 +174,18 @@ export const voltCreateCampaign = inngest.createFunction(
       if (error) throw new Error(`persist-external-id failed: ${error.message}`);
       return { updated: (data ?? []).length };
     });
+
+    // ===== 3b. Disable open tracking (T024 — Apple MPP + Gmail
+    //           invalidan el píxel; sin señal accionable, mejor
+    //           liberar el HTML del pixel). Idempotente: PATCH con
+    //           partial update aplicado N veces = mismo estado.
+    if (VOLT_DISABLE_OPEN_TRACKING) {
+      await step.run("disable-open-tracking", () =>
+        patchLemlistCampaign(lemlist, externalId, {
+          tracking: { trackOpens: false },
+        }),
+      );
+    }
 
     // ===== 4. Load existing schedules =====
     const existingSchedules = await step.run("load-existing-schedules", () =>

@@ -24,3 +24,11 @@ export const LEMLIST_UNSAFE_CAMPAIGN_STATES: readonly string[] = [
 // Firma del error que lanza el guard cuando ve un estado inseguro.
 // Nombre estable para que el operador lo reconozca en Inngest UI.
 export const VOLT_ERROR_CAMPAIGN_UNSAFE = "campaign_status_unsafe_abort";
+
+// T024: por defecto, Volt desactiva open tracking en cada campaña
+// nueva. Motivo: Apple MPP y Gmail invalidan el píxel de apertura;
+// el "open rate" resultante no es señal accionable y el píxel añade
+// peso HTML + un dominio de tracking extra que empeora entregabilidad.
+// La decisión GO/NO-GO del smoke se toma sobre reply/bounce/quejas,
+// no sobre opens.
+export const VOLT_DISABLE_OPEN_TRACKING = true;

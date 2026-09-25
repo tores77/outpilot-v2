@@ -46,23 +46,32 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
   // subject: undefined si viene "" o whitespace, así se persiste el
   // JSON limpio (sin clave subject en los follow-ups). Zod validará
   // que el step 1 tenga subject non-empty.
+  //
+  // Sustitución {{legalFooter}} → template.legalFooter en el bodyHtml
+  // ANTES de validar: el textarea muestra el marcador crudo al usuario
+  // (para que vea dónde va el pie), pero la sequence persistida lleva
+  // el HTML resuelto (bake-at-copy-time, igual que sequenceFromTemplate).
+  const footerHtml = template.legalFooter ?? "";
   const stepsInput: Sequence["steps"] = template.steps.map((_, i) => {
     const rawSubject = fieldString(formData, `step-${i}-subject`);
     const subject = rawSubject.trim() === "" ? undefined : rawSubject;
+    const rawBody = fieldString(formData, `step-${i}-bodyHtml`);
     return {
       index: fieldInt(formData, `step-${i}-index`),
       delayDays: fieldInt(formData, `step-${i}-delayDays`),
       subject,
-      bodyHtml: fieldString(formData, `step-${i}-bodyHtml`),
+      bodyHtml: rawBody.replace(/\{\{\s*legalFooter\s*\}\}/g, footerHtml),
     };
   });
 
   const candidate: Sequence = {
     version: 1,
     templateSlug,
+    channel: template.channel,
     // openerFallback viene siempre del template — no es editable en el
     // form de v1. Si en el futuro se edita, entra por FormData.
     openerFallback: template.openerFallback,
+    ...(template.legalFooter ? { legalFooter: template.legalFooter } : {}),
     steps: stepsInput,
   };
 

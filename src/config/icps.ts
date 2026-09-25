@@ -18,12 +18,28 @@
 
 import { BRAND } from "./brand";
 
+// Variables permitidas en subject/bodyHtml/openerFallback.
+//
+// - firstName, lastName, companyName: variables Lemlist (per-lead).
+// - opener: nuestra variable, Lex la genera; Volt sustituye por
+//   openerFallback si viene "generic".
+// - signature: variable Lemlist (mailbox signature). Su USO se
+//   restringe por canal desde sequenceSchema (prohibida en email_cold).
+// - unsubscribeUrl: variable Lemlist (per-campaign). Va dentro del
+//   pie legal LSSI/RGPD; Lemlist genera el href per-lead con el token
+//   de baja de la campaña.
+// - legalFooter: marcador de plantilla; sequenceFromTemplate y la
+//   server action lo sustituyen por template.legalFooter antes de
+//   persistir. Aparece SOLO en templates y en el form pre-fill; una
+//   sequence persistida ya no lo contiene.
 export type IcpVariable =
   | "firstName"
   | "lastName"
   | "companyName"
   | "signature"
-  | "opener";
+  | "opener"
+  | "unsubscribeUrl"
+  | "legalFooter";
 
 export const ALLOWED_VARIABLES: readonly IcpVariable[] = [
   "firstName",
@@ -31,6 +47,8 @@ export const ALLOWED_VARIABLES: readonly IcpVariable[] = [
   "companyName",
   "signature",
   "opener",
+  "unsubscribeUrl",
+  "legalFooter",
 ];
 
 export type IcpStep = {
@@ -45,28 +63,44 @@ export type IcpStep = {
   bodyHtml: string;
 };
 
+// Canal de la secuencia. Determina reglas legales/estilísticas:
+//   - "email_cold" → legalFooter obligatorio (LSSI/RGPD), sin
+//     {{signature}} en ningún step (en frío la firma va como texto
+//     dentro del bodyHtml, no como variable de mailbox).
+export type IcpChannel = "email_cold";
+
 export type IcpTemplate = {
   slug: string;
   name: string;
   description: string;
+  channel: IcpChannel;
   // Frase(s) que Volt sustituye por {{opener}} cuando Lex devuelve
   // personalization: "generic". Texto plano (sin HTML): va dentro
   // del <p>{{opener}}</p> del step 1 al renderizar.
   openerFallback: string;
+  // Pie legal (LSSI/RGPD): identificación del remitente y línea de
+  // baja. sequenceFromTemplate lo sustituye en el marcador
+  // `{{legalFooter}}` presente al final del bodyHtml de cada step.
+  // Obligatorio para channel "email_cold" (validado por sequenceSchema).
+  legalFooter?: string;
   steps: readonly IcpStep[];
 };
 
 // ===== Industrial Premium ES =====
-// Secuencia real de Lemlist seq_CX6SQC5Hyoz8DG2fy, tres pasos.
-// Convertida a <p>/<br> tras leerla limpia del provider (Pere).
+// Copy T024 (v2): sin {{signature}}, firma como texto en frío.
+// {{legalFooter}} se sustituye en sequenceFromTemplate por el HTML
+// de `legalFooter`. UNSUB_LINK dentro del footer es un placeholder
+// literal que Pere reemplazará con el marcado exacto de Lemlist tras
+// descubrirlo en la UI y leerlo por GET /sequences.
 
 const industrialPremiumEs_step1 = `
 <p>Hola {{firstName}},</p>
 <p>{{opener}}</p>
-<p>Pero he visitado vuestra web y os va a costar mucho convencer a un comprador internacional con la web actual. Está pidiendo a gritos un nivel acorde al producto.<br>Acabamos de entregar la web de Our Moment Charter (Mallorca) con un stack que combina Three.js, scroll cinematográfico y un agente IA embebido que cualifica leads 24/7.<br>La inversión equivale a ~0,3% del revenue anual de empresas como la vuestra.</p>
-<p>¿20 minutos esta semana para enseñarte cómo quedaría algo así para {{companyName}}?</p>
-<p><a href="${BRAND.CALENDLY_URL}">Calendly: Reservar 20 minutos</a><br>Pau · Umania Labs<br><a href="${BRAND.STUDIO_URL}">umanialabs.com</a></p>
-<p>{{signature}}</p>
+<p>Pero un comprador alemán que os compara con un italiano decide en treinta segundos, y vuestra web no se lo pone fácil.</p>
+<p>El problema no es la web. Es que el producto vale más de lo que la web cuenta.</p>
+<p>¿Te va bien que te proponga dos huecos de veinte minutos para enseñarte qué haría yo con la vuestra? Solo criterio, sin compromiso.</p>
+<p>Pau Torres<br>Umania Labs · Mallorca</p>
+{{legalFooter}}
 `.trim();
 
 // Fallback text que sustituye {{opener}} si Lex devuelve
@@ -78,35 +112,39 @@ const industrialPremiumEs_openerFallback =
 
 const industrialPremiumEs_step2 = `
 <p>{{firstName}},</p>
-<p>Una matemática que casi ninguna empresa industrial hace:</p>
-<p>El benchmark internacional dice que una web deficiente cuesta de media el 3-5% del revenue capturable. Para empresas vuestro tamaño eso son cientos de miles de € al año en oportunidades que llegan, miran y se van sin contactar.</p>
-<p>Web premium con nuestro stack: 14 días, 25-35k€. Si solo recuperáis el 5% de esa pérdida anual, se paga sola en 9-12 meses.</p>
-<p>¿Hablamos 20 minutos? Mi agenda está <a href="${BRAND.CALENDLY_URL}">aquí</a>.</p>
-<p>Pau<br><a href="${BRAND.STUDIO_URL}">umanialabs.com</a></p>
-<p>{{signature}}</p>
+<p>Un dato: la última web que entregamos, para un negocio que vende a clientes extranjeros, salió en catorce días y lleva un agente que responde a los compradores a cualquier hora.</p>
+<p>No digo que sea vuestro caso. Digo que si un comprador entra a las once de la noche desde Múnich, alguien tiene que atenderle.</p>
+<p>Si quieres verlo aplicado a {{companyName}}, aquí tienes mi agenda: <a href="${BRAND.CALENDLY_URL}">reservar veinte minutos</a></p>
+<p>Pau</p>
+{{legalFooter}}
 `.trim();
 
 const industrialPremiumEs_step3 = `
 <p>{{firstName}},</p>
-<p>No insisto más.</p>
-<p>Si en algún momento decidís renovar la web, escríbeme a <a href="mailto:${BRAND.CONTACT_EMAIL}">${BRAND.CONTACT_EMAIL}</a> y lo retomamos.</p>
-<p>Y si quieres echar un ojo al trabajo antes: <a href="${BRAND.STUDIO_URL}">umanialabs.com</a></p>
+<p>No insisto más. Si en algún momento decidís revisar la web, escríbeme y lo retomamos.</p>
 <p>Suerte con la temporada.</p>
-<p>Pau<br><a href="${BRAND.STUDIO_URL}">umanialabs.com</a></p>
-<p>{{signature}}</p>
+<p>Pau</p>
+{{legalFooter}}
 `.trim();
+
+// Pie legal LSSI/RGPD. {{unsubscribeUrl}} es variable Lemlist estándar
+// (per-campaign, un token único de baja por lead). Marcado verificado
+// por GET /sequences tras añadirlo en la UI de Lemlist.
+const industrialPremiumEs_legalFooter = `<p style="font-size:12px;color:#6B6B6B">Te escribo a tu dirección profesional por interés legítimo, porque creo que esto puede ser relevante para {{companyName}}. Si prefieres no recibir más mensajes, puedes <a href="{{unsubscribeUrl}}">darte de baja aquí</a>. Umanialabs SL · Quarta Volta 4027, 07200 Felanitx, Mallorca.</p>`;
 
 const industrialPremiumEs: IcpTemplate = {
   slug: "industrial_premium_es",
   name: "Industrial Premium ES",
   description:
     "Fabricantes industriales españoles con producto premium que compiten con italianos y franceses en export. Web actual como cuello de botella comercial.",
+  channel: "email_cold",
   openerFallback: industrialPremiumEs_openerFallback,
+  legalFooter: industrialPremiumEs_legalFooter,
   steps: [
     {
       index: 1,
       delayDays: 0,
-      subject: "{{firstName}}, una observación sobre {{companyName}}",
+      subject: "{{firstName}}, vuestra web y el comprador alemán",
       bodyHtml: industrialPremiumEs_step1,
     },
     {

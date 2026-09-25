@@ -182,8 +182,11 @@ function CampaignForm({
       <p className="text-xs text-muted">
         Variables permitidas:{" "}
         <code>{"{{firstName}}"}</code>, <code>{"{{lastName}}"}</code>,{" "}
-        <code>{"{{companyName}}"}</code>, <code>{"{{signature}}"}</code>,{" "}
-        <code>{"{{opener}}"}</code>. Cualquier otra hace fallar el submit.
+        <code>{"{{companyName}}"}</code>, <code>{"{{opener}}"}</code>.{" "}
+        Cualquier otra hace fallar el submit. En ICPs de email en frío,{" "}
+        <code>{"{{signature}}"}</code> está prohibido (la firma va como
+        texto). El marcador <code>{"{{legalFooter}}"}</code> se sustituye
+        automáticamente por el pie legal del template al guardar.
       </p>
 
       <SubmitButton>Crear campaña en draft</SubmitButton>

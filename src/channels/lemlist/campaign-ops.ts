@@ -123,6 +123,43 @@ export async function getLemlistCampaign(
 }
 
 /**
+ * Body de PATCH /campaigns/:cid para toggles de tracking. Docs Lemlist
+ * (developer.lemlist.com/api-reference/endpoints/campaigns/update-campaign.md):
+ * la forma preferida es la sección estructurada `tracking: {...}`, que
+ * se aplica como partial update; solo los flags incluidos cambian. La
+ * forma legacy plana (`disableTrackOpen` etc.) sigue soportada pero
+ * queda desaconsejada en docs.
+ */
+export type LemlistPatchCampaignBody = {
+  tracking?: {
+    trackOpens?: boolean;
+    trackClicks?: boolean;
+    trackReplies?: boolean;
+  };
+  name?: string;
+  // Otros campos posibles (docs listan muchos) — añadir cuando alguna
+  // tarea los necesite. YAGNI para T024.
+};
+
+/**
+ * PATCH /campaigns/:cid. Naturalmente idempotente (partial update con
+ * el mismo body N veces produce el mismo estado). En T024 el job
+ * volt-create-campaign lo usa justo tras crear la campaña para
+ * desactivar open tracking (Apple MPP + Gmail invalidan el píxel;
+ * sin open rate confiable, mejor no cargar HTML con el pixel).
+ */
+export async function patchLemlistCampaign(
+  client: LemlistClient,
+  cid: string,
+  body: LemlistPatchCampaignBody,
+): Promise<LemlistCampaignSummary> {
+  return client.patch<LemlistCampaignSummary>(
+    `/campaigns/${encodeURIComponent(cid)}`,
+    body,
+  );
+}
+
+/**
  * GET /campaigns/:cid/schedules. Devuelve las filas necesarias para
  * decidir si ya existe una ventana Volt (M-X-J 15-17) antes de crear
  * la segunda.
