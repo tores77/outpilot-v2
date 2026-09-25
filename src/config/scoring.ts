@@ -7,6 +7,15 @@
 
 export const NOVA_SCORE_BATCH_SIZE = 20;
 
+// Tope de tokens de output que aceptamos de Haiku por batch. Fase 2
+// midió (probe 2026-09-25): un batch de 20 leads con reasoning
+// detallado del prompt actual produce ~15 000 tokens de output. El
+// límite anterior de 3 000 truncaba el JSON a mitad y disparaba el
+// bucle infinito de parse_error → release → re-claim. 16 000 deja
+// margen para Haiku 4.5 sin llegar al cap del modelo. Coste
+// resultante por batch: ~$0.08 (5 000 in @ $1/M + 15 000 out @ $5/M).
+export const NOVA_SCORE_MAX_TOKENS = 16000;
+
 // TTL para claims stuck (leads con scoring_claimed_at seteado por un
 // run que murió sin escribir icp_score). Al inicio de cada trigger,
 // sweep-stale resetea a NULL cualquier claim más antiguo que este

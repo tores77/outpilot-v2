@@ -58,6 +58,10 @@ export type CallClaudeUsage = {
   outputTokens: number;
   costUsd: number;
   latencyMs: number;
+  // stop_reason del SDK Anthropic. Útil para diagnosticar por qué
+  // una respuesta llegó truncada ("max_tokens" vs "end_turn"). Puede
+  // ser null cuando el SDK no lo reporta.
+  stopReason: string | null;
 };
 
 export type CallClaudeResult =
@@ -125,7 +129,14 @@ export async function callClaude(
   return {
     ok: true,
     text,
-    usage: { model, inputTokens, outputTokens, costUsd, latencyMs },
+    usage: {
+      model,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      latencyMs,
+      stopReason: response.stop_reason ?? null,
+    },
   };
 }
 

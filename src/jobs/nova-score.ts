@@ -1,29 +1,33 @@
-// Nova ICP scoring — batch job (T024 harness).
+// Nova ICP scoring — batch job (T024 harness · fix bucle infinito).
 //
 // Trigger: event `nova/score.requested`. Manual-only (botón
 // "Puntuar N pendientes" en /radar).
 //
-// Anti-fan-out (post-mortem 2026-09-25, mismo patrón que Lex T022):
-//   6 clicks generaron 4 runs solapados porque el botón no daba
-//   feedback y el usuario clicó varias veces mientras el batch
-//   estaba en vuelo. Cada run leyó los mismos leads sin score y
-//   habría llamado a Haiku sobre la misma batch. Fix:
-//     1. concurrency: [{ limit: 1, key: "event.data.tenantId" }] —
-//        serializa runs por tenant. Runs posteriores esperan a que
-//        el primero termine.
-//     2. sweep-stale al inicio: resetea scoring_claimed_at NULL para
-//        claims más antiguos que NOVA_SCORE_STALE_CLAIM_MS.
-//     3. claim atómico por batch antes de llamar a Haiku (UPDATE
-//        con guard .is(scoring_claimed_at, null)).
-//     4. Un solo click procesa TODOS los pendientes en lotes
-//        sucesivos DENTRO del mismo run (loop con cap
-//        NOVA_SCORE_MAX_BATCHES_PER_RUN). Sin necesidad de 6 clicks.
-//     5. Parser tolerante (parseScoringResponse devuelve {ok, ...}):
-//        un batch con respuesta rota no tumba el run; libera sus
-//        claims y sigue con el siguiente batch.
-//
-// La UI (botón de /radar) cuenta pendientes reales vs claims frescos
-// y muestra "Puntuando N…" deshabilitado mientras haya procesando.
+// Historia del harness:
+//   T015 — versión ingenua (1 batch, sin claim).
+//   2026-09-25 (mañana) — post-mortem fan-out: 6 clicks → 4 runs
+//   solapados llamando a Haiku sobre los mismos leads. Fix:
+//     · concurrency 1 por tenant.
+//     · migración 005 + claim atómico.
+//     · sweep-stale para claims muertos.
+//     · loop "un click procesa todos los pendientes".
+//   2026-09-25 (tarde) — post-mortem bucle infinito
+//   (run 01M3CJ4MBAY12EJQ1B2TH4KHKW): el batch fallaba a parsear
+//   y el release-on-parse-error devolvía los leads a pendientes;
+//   el loop los volvía a coger. 10 min y ~15 llamadas a Haiku
+//   desperdiciadas hasta cancelar a mano. Fix (este archivo):
+//     · Causa raíz identificada por probe local: Haiku alcanzaba
+//       max_tokens=3000 con 20 leads → JSON truncado sin recuperación.
+//       Subido a NOVA_SCORE_MAX_TOKENS (16 000).
+//     · Migración 006 + scoring_error jsonb: batches con parse_error
+//       se marcan (no liberan) → excluidos del claim en este run
+//       y siguientes hasta limpieza manual.
+//     · Hard cap dinámico ceil(pending_start / batch_size) + 1:
+//       si el loop supera esto, aborta con error explícito.
+//     · El step `mark-on-parse-error` devuelve el payload de error
+//       (reason + response_preview + stop_reason) para verlo en Inngest.
+//     · Distinción claude_error (transitorio → release) vs parse_error
+//       (persistente → markScoringError).
 
 import { inngest } from "@/lib/inngest";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -38,6 +42,7 @@ import {
 import {
   NOVA_SCORE_BATCH_SIZE,
   NOVA_SCORE_MAX_BATCHES_PER_RUN,
+  NOVA_SCORE_MAX_TOKENS,
   NOVA_SCORE_STALE_CLAIM_MS,
   NOVA_SCORE_THRESHOLD_EN_RADAR,
   NOVA_SCORE_THRESHOLD_REVIEW,
@@ -47,6 +52,7 @@ import {
   claimPendingScoring,
   countScoringPending,
   finalizeScore,
+  markScoringError,
   releaseScoringClaims,
   sweepStaleScoringClaims,
   type ClaimedLead,
@@ -75,8 +81,11 @@ type BatchOutcome = {
   promoted: number;
   flagged_review: number;
   unscored: number;
+  outcome:
+    | "ok"
+    | "parse_error"
+    | "claude_error";
   parse_error: string | null;
-  released_on_parse_error: number;
   claude_input_tokens: number;
   claude_output_tokens: number;
   claude_cost_usd: number;
@@ -108,18 +117,36 @@ export const novaScore = inngest.createFunction(
       }),
     );
 
-    // ===== 2. Loop de batches sucesivos dentro del mismo run =====
+    // ===== 2. Snapshot inicial de pendientes → hard cap dinámico =====
     //
-    // Cada iteración: claim atómico → Haiku batch → finalize por lead.
-    // Termina cuando claim devuelve 0 (no hay más pendientes) o cuando
-    // se alcanza NOVA_SCORE_MAX_BATCHES_PER_RUN (safety cap).
+    // El cap protege contra el bucle infinito: si algo hace que el
+    // mismo lead siga apareciendo en el claim tras un batch (bug de
+    // guard, race pathológica), el cap corta el loop en un número de
+    // iteraciones que TIENE sentido para el pool inicial. Fórmula:
+    //   ceil(pending_start / batch_size) + 1
+    // El +1 tolera una re-entrada legítima (p.ej. sweep libera stale
+    // durante el run). Si excedemos → error explícito, no silencioso.
+    // Y aún tenemos NOVA_SCORE_MAX_BATCHES_PER_RUN como techo global.
+    const initialCount = await step.run("count-initial", () =>
+      countScoringPending(supabase, {
+        tenantId,
+        staleMs: NOVA_SCORE_STALE_CLAIM_MS,
+      }),
+    );
+    const dynamicCap = Math.max(
+      1,
+      Math.ceil(initialCount.activePending / NOVA_SCORE_BATCH_SIZE) + 1,
+    );
+    const effectiveCap = Math.min(dynamicCap, NOVA_SCORE_MAX_BATCHES_PER_RUN);
+
+    // ===== 3. Loop de batches sucesivos dentro del mismo run =====
     const batches: BatchOutcome[] = [];
     let batchIndex = 0;
 
-    while (batchIndex < NOVA_SCORE_MAX_BATCHES_PER_RUN) {
+    while (batchIndex < effectiveCap) {
       const batchStartedAt = Date.now();
 
-      // Claim atómico
+      // Claim atómico (excluye scoring_error != NULL en la propia SQL).
       const claimed: ClaimedLead[] = await step.run(
         `claim-batch-${batchIndex}`,
         () =>
@@ -147,22 +174,21 @@ export const novaScore = inngest.createFunction(
             task: "nova.score",
             tenantId,
             system: NOVA_SCORING_SYSTEM_PROMPT,
-            maxTokens: 3000,
+            maxTokens: NOVA_SCORE_MAX_TOKENS,
             messages: [{ role: "user", content: userMessage }],
           }),
       );
 
       if (!claudeResult.ok) {
-        // Haiku falló (llamada, no la respuesta). Libera claims para
-        // reintentar en el próximo click sin esperar al TTL.
-        const released = await step.run(
-          `release-on-claude-error-${batchIndex}`,
-          () =>
-            releaseScoringClaims(supabase, {
-              tenantId,
-              leadIds,
-              claimStartedAt,
-            }),
+        // Haiku falló (llamada de red, 5xx, timeout — transitorio).
+        // Libera claims (sin marcar error) para reintentar en el
+        // próximo click.
+        await step.run(`release-on-claude-error-${batchIndex}`, () =>
+          releaseScoringClaims(supabase, {
+            tenantId,
+            leadIds,
+            claimStartedAt,
+          }),
         );
         batches.push({
           batch_index: batchIndex,
@@ -171,8 +197,8 @@ export const novaScore = inngest.createFunction(
           promoted: 0,
           flagged_review: 0,
           unscored: claimed.length,
+          outcome: "claude_error",
           parse_error: `claude_error: ${claudeResult.code}: ${claudeResult.error}`,
-          released_on_parse_error: released,
           claude_input_tokens: 0,
           claude_output_tokens: 0,
           claude_cost_usd: 0,
@@ -185,22 +211,39 @@ export const novaScore = inngest.createFunction(
 
       const parseResult = parseScoringResponse(claudeResult.text);
       if (!parseResult.ok) {
-        // Parse falló. Libera claims: próximo click reintenta.
+        // Parse falló (respuesta rota persistente, p.ej. truncada por
+        // max_tokens). Marca scoring_error con motivo + preview de la
+        // respuesta cruda + stop_reason. Los leads quedan EXCLUIDOS
+        // del claim en este run y en futuros — el humano limpia con
+        // SQL cuando decida reintentar. El step devuelve el payload
+        // para que se vea en Inngest sin tener que abrir BD.
         console.error(
           "[nova-score] parse error",
           parseResult.error,
           "preview:",
           parseResult.preview,
         );
-        const released = await step.run(
-          `release-on-parse-error-${batchIndex}`,
-          () =>
-            releaseScoringClaims(supabase, {
-              tenantId,
-              leadIds,
-              claimStartedAt,
-            }),
-        );
+        const errorPayload = {
+          reason: parseResult.error,
+          response_preview: claudeResult.text.slice(0, 500),
+          stop_reason: claudeResult.usage.stopReason ?? null,
+          batch_index: batchIndex,
+          claude_input_tokens: claudeResult.usage.inputTokens,
+          claude_output_tokens: claudeResult.usage.outputTokens,
+          timestamp: new Date().toISOString(),
+        };
+        await step.run(`mark-on-parse-error-${batchIndex}`, async () => {
+          const marked = await markScoringError(supabase, {
+            tenantId,
+            leadIds,
+            claimStartedAt,
+            errorPayload,
+          });
+          // Devolvemos el payload de error como salida del step.
+          // Inngest lo persiste como resultado del step → visible en
+          // la UI sin abrir BD.
+          return { marked, ...errorPayload };
+        });
         batches.push({
           batch_index: batchIndex,
           claimed: claimed.length,
@@ -208,8 +251,8 @@ export const novaScore = inngest.createFunction(
           promoted: 0,
           flagged_review: 0,
           unscored: claimed.length,
+          outcome: "parse_error",
           parse_error: parseResult.error,
-          released_on_parse_error: released,
           claude_input_tokens: claudeResult.usage.inputTokens,
           claude_output_tokens: claudeResult.usage.outputTokens,
           claude_cost_usd: claudeResult.usage.costUsd,
@@ -266,8 +309,6 @@ export const novaScore = inngest.createFunction(
             update,
           });
           if (!wrote) {
-            // Alguien reseteó nuestro claim (sweep + reclaim de otro
-            // run). No pasa nada: el otro run persistirá su resultado.
             console.warn(
               "[nova-score] lost race on finalize",
               lead.id,
@@ -284,8 +325,8 @@ export const novaScore = inngest.createFunction(
         promoted,
         flagged_review: flaggedReview,
         unscored,
+        outcome: "ok",
         parse_error: null,
-        released_on_parse_error: 0,
         claude_input_tokens: claudeResult.usage.inputTokens,
         claude_output_tokens: claudeResult.usage.outputTokens,
         claude_cost_usd: claudeResult.usage.costUsd,
@@ -295,9 +336,7 @@ export const novaScore = inngest.createFunction(
       batchIndex += 1;
     }
 
-    // Si terminamos por el cap y hay más pendientes, lo dejamos claro
-    // en el evento; Pere clica de nuevo. La concurrency guard serializa.
-    const capHit = batchIndex >= NOVA_SCORE_MAX_BATCHES_PER_RUN;
+    const capHit = batchIndex >= effectiveCap;
 
     // Aggregate
     const totals = batches.reduce(
@@ -307,9 +346,12 @@ export const novaScore = inngest.createFunction(
         promoted: acc.promoted + b.promoted,
         flagged_review: acc.flagged_review + b.flagged_review,
         unscored: acc.unscored + b.unscored,
-        parse_errors: acc.parse_errors + (b.parse_error ? 1 : 0),
-        released_on_parse_error:
-          acc.released_on_parse_error + b.released_on_parse_error,
+        batches_failed:
+          acc.batches_failed +
+          (b.outcome === "parse_error" || b.outcome === "claude_error" ? 1 : 0),
+        parse_errors: acc.parse_errors + (b.outcome === "parse_error" ? 1 : 0),
+        claude_errors:
+          acc.claude_errors + (b.outcome === "claude_error" ? 1 : 0),
         claude_input_tokens: acc.claude_input_tokens + b.claude_input_tokens,
         claude_output_tokens:
           acc.claude_output_tokens + b.claude_output_tokens,
@@ -321,27 +363,27 @@ export const novaScore = inngest.createFunction(
         promoted: 0,
         flagged_review: 0,
         unscored: 0,
+        batches_failed: 0,
         parse_errors: 0,
-        released_on_parse_error: 0,
+        claude_errors: 0,
         claude_input_tokens: 0,
         claude_output_tokens: 0,
         claude_cost_usd: 0,
       },
     );
 
-    // Cuenta restante para el evento (útil cuando cap_hit=true).
-    const remaining = capHit
-      ? await step.run("count-remaining", () =>
-          countScoringPending(supabase, {
-            tenantId,
-            staleMs: NOVA_SCORE_STALE_CLAIM_MS,
-          }),
-        )
-      : null;
+    // Cuenta restante para el evento (útil cuando cap_hit=true o hay
+    // batches_failed).
+    const remaining = await step.run("count-remaining", () =>
+      countScoringPending(supabase, {
+        tenantId,
+        staleMs: NOVA_SCORE_STALE_CLAIM_MS,
+      }),
+    );
 
     const latencyMs = Date.now() - startedAt;
 
-    // ===== 3. events row =====
+    // ===== events row =====
     await step.run("record-event", async () => {
       const { error } = await supabase.from("events").insert({
         tenant_id: tenantId,
@@ -350,17 +392,21 @@ export const novaScore = inngest.createFunction(
         entity_type: "lead",
         payload: {
           batches_processed: batches.length,
+          batches_failed: totals.batches_failed,
+          parse_errors: totals.parse_errors,
+          claude_errors: totals.claude_errors,
           swept_stale: sweptCount,
+          initial_pending: initialCount.activePending,
+          effective_cap: effectiveCap,
+          cap_hit: capHit,
+          remaining_after_run: remaining,
           claimed_total: totals.claimed,
           scored_total: totals.scored,
           promoted_to_en_radar: totals.promoted,
           flagged_needs_review: totals.flagged_review,
           unscored: totals.unscored,
-          parse_errors: totals.parse_errors,
-          released_on_parse_error: totals.released_on_parse_error,
-          cap_hit: capHit,
-          remaining_after_run: remaining,
           per_batch_latency_ms: batches.map((b) => b.batch_latency_ms),
+          per_batch_outcome: batches.map((b) => b.outcome),
           claude_input_tokens: totals.claude_input_tokens,
           claude_output_tokens: totals.claude_output_tokens,
           claude_cost_usd: totals.claude_cost_usd,
@@ -370,18 +416,37 @@ export const novaScore = inngest.createFunction(
       if (error) console.error("[nova-score] events insert failed", error);
     });
 
+    // Si superamos effectiveCap con MÁS reclamables aún, lanza error
+    // explícito para que Inngest lo marque failed (no silenciar el
+    // bug si vuelve a aparecer).
+    if (
+      capHit &&
+      remaining.activePending > 0 &&
+      dynamicCap < NOVA_SCORE_MAX_BATCHES_PER_RUN
+    ) {
+      throw new Error(
+        `nova-score: cap dinámico superado (batches=${batches.length}, ` +
+          `cap=${effectiveCap}, initial_pending=${initialCount.activePending}, ` +
+          `remaining=${remaining.activePending}). Posible bucle: revisa ` +
+          `parse_errors y scoring_error de los leads.`,
+      );
+    }
+
     return {
       batches_processed: batches.length,
+      batches_failed: totals.batches_failed,
+      parse_errors: totals.parse_errors,
+      claude_errors: totals.claude_errors,
       swept_stale: sweptCount,
+      initial_pending: initialCount.activePending,
+      effective_cap: effectiveCap,
+      cap_hit: capHit,
+      remaining_after_run: remaining,
       claimed_total: totals.claimed,
       scored_total: totals.scored,
       promoted: totals.promoted,
       flagged_review: totals.flagged_review,
       unscored: totals.unscored,
-      parse_errors: totals.parse_errors,
-      released_on_parse_error: totals.released_on_parse_error,
-      cap_hit: capHit,
-      remaining_after_run: remaining,
       per_batch_latency_ms: batches.map((b) => b.batch_latency_ms),
       claude: {
         inputTokens: totals.claude_input_tokens,

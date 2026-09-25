@@ -311,6 +311,7 @@ export type Database = {
           linkedin_url: string | null
           needs_review: boolean
           phone: string | null
+          scoring_claimed_at: string | null
           sector: string | null
           source: Database["public"]["Enums"]["lead_source"]
           tenant_id: string
@@ -333,6 +334,7 @@ export type Database = {
           linkedin_url?: string | null
           needs_review?: boolean
           phone?: string | null
+          scoring_claimed_at?: string | null
           sector?: string | null
           source: Database["public"]["Enums"]["lead_source"]
           tenant_id: string
@@ -355,6 +357,7 @@ export type Database = {
           linkedin_url?: string | null
           needs_review?: boolean
           phone?: string | null
+          scoring_claimed_at?: string | null
           sector?: string | null
           source?: Database["public"]["Enums"]["lead_source"]
           tenant_id?: string

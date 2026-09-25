@@ -17,6 +17,7 @@ import {
   NOISY_JSON,
   NOT_JSON_AT_ALL,
   RAW_JSON_ARRAY,
+  TRUNCATED_BY_MAX_TOKENS,
 } from "../fixtures/scoring-responses";
 
 // Wrapper para tests que solo se preocupan del array parseado
@@ -124,6 +125,23 @@ describe("parseScoringResponse", () => {
     const r = parseScoringResponse('{"id": "x"}');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe("not_array");
+  });
+
+  it("REGRESIÓN 2026-09-25 tarde: respuesta truncada por max_tokens (bucle infinito) → ok:false, sin lanzar", () => {
+    // Fixture anonimizado de la respuesta real que rompió el batch.
+    // El parser NO puede recuperar un JSON truncado; el guarantee es
+    // devolver ok:false para que el harness marque scoring_error y no
+    // vuelva a reclamar. La cura de raíz es NOVA_SCORE_MAX_TOKENS=16000,
+    // pero el parser+guard son la salvaguarda si vuelve a pasar.
+    const r = parseScoringResponse(TRUNCATED_BY_MAX_TOKENS);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(/^not_valid_json/);
+      // Preview contiene el inicio de la respuesta (útil para
+      // diagnosticar en el step output de Inngest sin abrir BD).
+      expect(r.preview.length).toBeGreaterThan(0);
+      expect(r.preview).toContain("fixture-a");
+    }
   });
 });
 

@@ -88,6 +88,7 @@ export async function claimPendingScoring(
 
   // Fase 1: candidatos ordenados por created_at ASC (los más antiguos
   // primero, misma política que el fetch original de nova-score).
+  // Excluye scoring_error != NULL — batches fallidos NO se re-reclaman.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const q1: any = asUntyped(supabase).from("leads");
   const { data: candidates, error: selErr } = await q1
@@ -95,6 +96,7 @@ export async function claimPendingScoring(
     .eq("tenant_id", tenantId)
     .is("icp_score", null)
     .is("scoring_claimed_at", null)
+    .is("scoring_error", null)
     .order("created_at", { ascending: true })
     .limit(limit);
   if (selErr) throw new Error(`claim select failed: ${selErr.message}`);
@@ -103,7 +105,7 @@ export async function claimPendingScoring(
   const ids: string[] = candidates.map((c: { id: string }) => c.id);
   const startedAt = new Date().toISOString();
 
-  // Fase 2: UPDATE con race guard.
+  // Fase 2: UPDATE con race guard (misma exclusión de scoring_error).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const q2: any = asUntyped(supabase).from("leads");
   const { data: claimed, error: upErr } = await q2
@@ -112,6 +114,7 @@ export async function claimPendingScoring(
     .in("id", ids)
     .is("icp_score", null)
     .is("scoring_claimed_at", null)
+    .is("scoring_error", null)
     .select("*");
   if (upErr) throw new Error(`claim update failed: ${upErr.message}`);
   if (!claimed) return [];
@@ -120,6 +123,43 @@ export async function claimPendingScoring(
     lead,
     claim_started_at: startedAt,
   }));
+}
+
+/**
+ * Marca un batch fallido con scoring_error (payload JSONB) y libera
+ * el scoring_claimed_at en la misma UPDATE. Guard atómico: solo
+ * escribe si el claim sigue siendo el nuestro. Los leads marcados
+ * quedan excluidos del claim en runs posteriores hasta que un humano
+ * limpie el error manualmente.
+ *
+ * Uso: parse_error (respuesta rota persistente). Para errores
+ * transitorios (5xx Anthropic, timeout), usa releaseScoringClaims que
+ * NO marca (los leads quedan disponibles inmediatamente).
+ */
+export async function markScoringError(
+  supabase: SupabaseClient<Database>,
+  args: {
+    tenantId: string;
+    leadIds: string[];
+    claimStartedAt: string;
+    errorPayload: Record<string, unknown>;
+  },
+): Promise<number> {
+  const { tenantId, leadIds, claimStartedAt, errorPayload } = args;
+  if (leadIds.length === 0) return 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const q: any = asUntyped(supabase).from("leads");
+  const { data, error } = await q
+    .update({
+      scoring_claimed_at: null,
+      scoring_error: errorPayload,
+    })
+    .eq("tenant_id", tenantId)
+    .in("id", leadIds)
+    .eq("scoring_claimed_at", claimStartedAt)
+    .select("id");
+  if (error) throw new Error(`mark-error failed: ${error.message}`);
+  return (data ?? []).length;
 }
 
 /**
@@ -194,13 +234,17 @@ export async function finalizeScore(
 export async function countScoringPending(
   supabase: SupabaseClient<Database>,
   args: { tenantId: string; staleMs: number },
-): Promise<{ activePending: number; activeProcessing: number }> {
+): Promise<{
+  activePending: number;
+  activeProcessing: number;
+  errored: number;
+}> {
   const { tenantId, staleMs } = args;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const q: any = asUntyped(supabase).from("leads");
   const { data, error } = await q
-    .select("scoring_claimed_at")
+    .select("scoring_claimed_at, scoring_error")
     .eq("tenant_id", tenantId)
     .is("icp_score", null);
   if (error) throw new Error(`count-pending failed: ${error.message}`);
@@ -209,9 +253,17 @@ export async function countScoringPending(
   let nullCount = 0;
   let processingActive = 0;
   let processingStale = 0;
+  let errored = 0;
   for (const row of (data ?? []) as Array<{
     scoring_claimed_at: string | null;
+    scoring_error: unknown;
   }>) {
+    // Leads con error previo NO cuentan como pendientes ni procesando.
+    // Bloqueados hasta que un humano limpie scoring_error.
+    if (row.scoring_error !== null) {
+      errored += 1;
+      continue;
+    }
     if (row.scoring_claimed_at === null) {
       nullCount += 1;
       continue;
@@ -226,5 +278,6 @@ export async function countScoringPending(
   return {
     activePending: nullCount + processingStale,
     activeProcessing: processingActive,
+    errored,
   };
 }

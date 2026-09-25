@@ -132,9 +132,14 @@ export default async function RadarPage({
     data: { user: currentUser },
   } = await supabase.auth.getUser();
   const currentUserEmail = currentUser?.email ?? null;
-  let scoringPending: { activePending: number; activeProcessing: number } = {
+  let scoringPending: {
+    activePending: number;
+    activeProcessing: number;
+    errored: number;
+  } = {
     activePending: 0,
     activeProcessing: 0,
+    errored: 0,
   };
   if (currentUserEmail) {
     const { data: allowed } = await supabase
@@ -151,6 +156,7 @@ export default async function RadarPage({
   }
   const pendingScoreCount = scoringPending.activePending;
   const processingScoreCount = scoringPending.activeProcessing;
+  const erroredScoreCount = scoringPending.errored;
 
   const rows = data ?? [];
   const hasMore = rows.length > PAGE_SIZE;
@@ -179,7 +185,15 @@ export default async function RadarPage({
             corre en el import; el scoring ICP llega en T015.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {erroredScoreCount > 0 && (
+            <span
+              title="Leads con scoring_error != NULL (batch fallido; humano revisa antes de reintentar). Limpieza manual: UPDATE leads SET scoring_error = NULL WHERE ..."
+              className="rounded-md border border-amber-400 bg-amber-100 px-3 py-2 text-xs text-amber-900"
+            >
+              {erroredScoreCount} con error de scoring
+            </span>
+          )}
           {(pendingScoreCount > 0 || processingScoreCount > 0) && (
             <form action={scoreLeadsAction}>
               <ScoreButton
