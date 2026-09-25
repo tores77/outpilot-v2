@@ -19,7 +19,7 @@
 //     · Causa raíz identificada por probe local: Haiku alcanzaba
 //       max_tokens=3000 con 20 leads → JSON truncado sin recuperación.
 //       Subido a NOVA_SCORE_MAX_TOKENS (16 000).
-//     · Migración 006 + scoring_error jsonb: batches con parse_error
+//     · Migración 007 + scoring_error jsonb: batches con parse_error
 //       se marcan (no liberan) → excluidos del claim en este run
 //       y siguientes hasta limpieza manual.
 //     · Hard cap dinámico ceil(pending_start / batch_size) + 1:

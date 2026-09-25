@@ -1,4 +1,4 @@
--- OUTPILOT v2 — Migration 006: leads.scoring_error
+-- OUTPILOT v2 — Migration 007: leads.scoring_error
 -- Fase 2 · T024 harness (fix bucle infinito nova-score)
 --
 -- Un batch cuya respuesta de Haiku no parsea (JSON truncado, fence

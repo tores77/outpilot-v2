@@ -157,6 +157,31 @@ Decisión de Pere antes del smoke real. Si se quita una:
 
 No urgente; anotar para el gate T024.
 
+### Coste/tiempo del scoring de Nova (Haiku 4.5)
+
+Post-Fase 2 T024, probe midió: **~15 000 tokens de output por lote de
+20 leads**, ≈0,4 céntimos por lead, 30-35 s por lote. Casi todo se
+va en el `reasoning` largo del prompt actual.
+
+Ideas para acortar sin tocar el gate anti-fabricación (que sigue
+exigiendo citar campos usados y explicar por qué < 40):
+
+- **Recortar el reasoning a 2 frases máx** en el prompt. Cambio de
+  copy en `NOVA_SCORING_SYSTEM_PROMPT`, sin tocar la política. Estimado
+  ≈40-50% menos output tokens, mismo score.
+- **Puntuar en lotes de 10 en paralelo** en vez de 20 sequential.
+  Requiere replantear el loop del job (`Promise.all` sobre step.run,
+  o dividir el batch en dos step.run paralelos). Mismo coste total,
+  ≈50% menos latencia por click. Ojo con la concurrency guard
+  (limit 1 por tenant) — sigue serializando runs, pero dentro de un
+  run los batches sí paralelizarían.
+- **Modelo más barato** cuando salga Haiku 4.6 (o volver a 4.0 si
+  el score sigue calibrado). Comparar contra el fixture golden.
+
+No prioritario hasta que Nova entre en volumen real (Fase 3+ o el
+día que el pool pase de miles). Con < 500 leads/mes el ahorro es
+ruido.
+
 ### Probe país-del-contacto en Vibe (country_code vs prospect_country_code)
 
 `prospect_country_code` es del conector MCP: la API cruda de Explorium
