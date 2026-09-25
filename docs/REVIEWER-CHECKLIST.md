@@ -85,6 +85,7 @@ Marcar solo lo que aplica. En el reporte del gate, incluir los puntos relevantes
 - [ ] Si un deploy no sincroniza, mirar Inngest → Apps → Unattached Syncs: ahí aparecen los intentos fallidos con la URL y el error. Vercel Deployment Protection bloquea integraciones que llaman a la URL única del deploy.
 - [ ] Versión de la CLI de Supabase igual en local y en CI; si cambia, subirla en ambos y regenerar tipos en el mismo commit.
 - [ ] Tokens y credenciales nuevos, sin caducidad o con la caducidad anotada.
+- [ ] La build no depende de servicios externos: fuentes/imágenes/scripts servidos desde el propio repo (`public/`) o desde CDN con caché de build, nunca desde Google Fonts u otros terceros al momento del build. Motivo: CI #53 rojo por `next/font/google` sin red en el runner + higiene RGPD (sin peticiones a Google desde el backoffice).
 
 ### Historia
 - [ ] Un commit por tarea; fixes como commits propios con su razón. Sin amend de commits ya pusheados.

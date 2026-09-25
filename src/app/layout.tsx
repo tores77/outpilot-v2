@@ -1,19 +1,49 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, DM_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const cormorant = Cormorant_Garamond({
+// T024 higiene RGPD + resiliencia CI: fuentes servidas desde
+// public/fonts/ (Cormorant Garamond y DM Sans en OFL, versionadas
+// en el repo). El backoffice no hace peticiones a fonts.googleapis.com
+// ni a fonts.gstatic.com, y la build no depende de que la red del
+// runner alcance Google (CI #53 cayó por esto).
+const cormorant = localFont({
   variable: "--font-cormorant",
-  subsets: ["latin"],
-  weight: ["500", "600"],
   display: "swap",
+  src: [
+    {
+      path: "../../public/fonts/cormorant-garamond-500.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../../public/fonts/cormorant-garamond-600.woff2",
+      weight: "600",
+      style: "normal",
+    },
+  ],
 });
 
-const dmSans = DM_Sans({
+const dmSans = localFont({
   variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
   display: "swap",
+  src: [
+    {
+      path: "../../public/fonts/dm-sans-400.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../../public/fonts/dm-sans-500.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../../public/fonts/dm-sans-600.woff2",
+      weight: "600",
+      style: "normal",
+    },
+  ],
 });
 
 export const metadata: Metadata = {
