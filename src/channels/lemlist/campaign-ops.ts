@@ -11,6 +11,18 @@
 // verificado en T023 con `probe:lemlist-add-step`):
 //   POST   /api/campaigns                          → crea campaña
 //   GET    /api/campaigns/:cid                     → status + shape
+//                                                    (NO expone tracking
+//                                                    ni otros settings)
+//   PATCH  /api/campaigns/:cid                     → parcial. Body
+//                                                    { tracking:{...} }
+//                                                    aceptado (T024).
+//                                                    Ver LemlistPatchCampaignBody.
+//   GET    /api/campaigns/:cid/settings            → LEE tracking y demás
+//                                                    settings. El GET base
+//                                                    de /campaigns/:cid NO
+//                                                    los devuelve
+//                                                    (asimetría descubierta
+//                                                    con Pere en T024).
 //   GET    /api/campaigns/:cid/schedules           → lista schedules
 //   POST   /api/schedules                          → crea schedule
 //   PATCH  /api/schedules/:sid                     → parcial
@@ -129,6 +141,11 @@ export async function getLemlistCampaign(
  * se aplica como partial update; solo los flags incluidos cambian. La
  * forma legacy plana (`disableTrackOpen` etc.) sigue soportada pero
  * queda desaconsejada en docs.
+ *
+ * Verificado en T024 contra cam_Kd5FFwoW4amQGdky8: PATCH devuelve 200
+ * con echo del body enviado. El campo NO se lee desde
+ * GET /campaigns/:cid — el shape base no lo expone. La lectura se
+ * hace desde GET /campaigns/:cid/settings (confirmado por Pere).
  */
 export type LemlistPatchCampaignBody = {
   tracking?: {

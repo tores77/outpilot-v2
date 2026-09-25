@@ -14,9 +14,10 @@
 // mapa global de contactos. Con 646 contactos y 703 leads en total,
 // bastan ~10 requests para todo (bien dentro del rate limit).
 //
-// Escritura idempotente: INSERT ... ON CONFLICT (tenant_id, lower(email))
-// DO NOTHING. PK protege re-runs. Guardamos el email TAL CUAL llega
-// (trim aplicado) para trazabilidad; el lookup es case-insensitive.
+// Escritura idempotente: INSERT ... ON CONFLICT (tenant_id, email)
+// DO NOTHING. La PK es (tenant_id, email) y la tabla tiene
+// CHECK (email = lower(email)); este script normaliza a lowercase
+// antes de guardar. Re-runs seguros.
 //
 // Usage:
 //   node --env-file-if-exists=.env.local scripts/import-outreach-exclusions.mjs
@@ -93,7 +94,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function normalizeEmail(raw) {
   if (typeof raw !== "string") return null;
-  const t = raw.trim();
+  const t = raw.trim().toLowerCase();
   if (!EMAIL_RE.test(t)) return null;
   return t;
 }
@@ -281,10 +282,16 @@ async function buildRows(tenantId) {
 // ==============================================================
 
 async function writeRows(rows) {
-  if (rows.length === 0) return { inserted: 0 };
-  // Insert por lotes de 500 con ignoreDuplicates (upsert con onConflict).
+  if (rows.length === 0) return { inserted: 0, skipped: 0 };
+  // Insert por lotes con ignoreDuplicates (INSERT ... ON CONFLICT
+  // DO NOTHING). El .select("email") tras el upsert devuelve solo
+  // las filas efectivamente insertadas (RETURNING con ON CONFLICT
+  // DO NOTHING NO devuelve las conflictadas), así que:
+  //     inserted = data.length
+  //     skipped  = batch.length - data.length
   const BATCH = 500;
   let insertedTotal = 0;
+  let skippedTotal = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
     const { data, error } = await supabase
@@ -295,9 +302,11 @@ async function writeRows(rows) {
       })
       .select("email");
     if (error) throw new Error(`upsert batch ${i}: ${error.message}`);
-    insertedTotal += (data ?? []).length;
+    const insertedInBatch = (data ?? []).length;
+    insertedTotal += insertedInBatch;
+    skippedTotal += batch.length - insertedInBatch;
   }
-  return { inserted: insertedTotal };
+  return { inserted: insertedTotal, skipped: skippedTotal };
 }
 
 // ==============================================================
@@ -327,5 +336,8 @@ if (!EXECUTE) {
 }
 
 console.log(`\n[import] escribiendo a outreach_exclusions...`);
-const { inserted } = await writeRows(rows);
-console.log(`[import] insertadas nuevas: ${inserted} de ${rows.length} candidatas (resto: ya existían).`);
+const { inserted, skipped } = await writeRows(rows);
+console.log(`\n[import] resultado del write:`);
+console.log(`  filas candidatas:   ${rows.length}`);
+console.log(`  insertadas nuevas:  ${inserted}`);
+console.log(`  saltadas conflicto: ${skipped}  (email ya en la tabla)`);
