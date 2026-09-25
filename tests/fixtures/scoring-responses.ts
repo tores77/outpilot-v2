@@ -44,6 +44,23 @@ ${RAW_JSON_ARRAY}
 
 export const NOISY_JSON = `Here is the analysis:\n\n${RAW_JSON_ARRAY}\n\nEnd of response.`;
 
+// Regresión real del 2026-09-25 en producción: Haiku envolvió la
+// respuesta en un fence "```" con "json" en línea propia (no como
+// language marker inline). El parser original capturaba "json\n[...]"
+// como interior del fence y JSON.parse fallaba con
+// `Unexpected token '', "js..."` (el "js" era el prefijo "json\n"
+// sin eliminar). Fixture anonimizado a partir del run real.
+export const FENCED_JSON_LANG_ON_OWN_LINE = `\`\`\`
+json
+${RAW_JSON_ARRAY}
+\`\`\``;
+
+// Malformed puro: Haiku no devuelve JSON. Parser debe devolver
+// { ok: false } sin lanzar, para que el caller pueda liberar los
+// claims del lote sin tumbar el resto del run.
+export const NOT_JSON_AT_ALL =
+  "No he podido puntuar este lote por falta de datos coherentes.";
+
 export const MALFORMED_ENTRY = `[
   { "id": "fixture-good", "score": 55, "sub_scores": {"sector_fit": 50, "seniority_fit": 60, "brand_signal": 50, "budget_signal": 60}, "reasoning": "ok" },
   { "score": 90, "reasoning": "missing id — should be skipped" },

@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
-import { NOVA_SCORE_BATCH_SIZE } from "@/config/scoring";
+import {
+  NOVA_SCORE_BATCH_SIZE,
+  NOVA_SCORE_STALE_CLAIM_MS,
+} from "@/config/scoring";
+import { countScoringPending } from "@/lib/nova/claim";
 import { scoreLeadsAction } from "./actions";
+import { ScoreButton } from "./score-button";
 
 type LeadEstado = Database["public"]["Enums"]["lead_estado"];
 
@@ -120,13 +125,32 @@ export default async function RadarPage({
   const { data, error } = await query;
   if (error) throw error;
 
-  // Count how many leads are still missing an ICP score. Cheap: no rows
-  // are transferred (head:true) and the count uses the (tenant_id, ...)
-  // index. Used to label the "Puntuar" button with a concrete number.
-  const { count: pendingScoreCount } = await supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .is("icp_score", null);
+  // Cuenta pendientes reales vs claims frescos (procesando). Sin este
+  // desglose el usuario ve "20 pendientes /113" sin cambiar mientras
+  // un run está en vuelo → clica de nuevo (fan-out).
+  const {
+    data: { user: currentUser },
+  } = await supabase.auth.getUser();
+  const currentUserEmail = currentUser?.email ?? null;
+  let scoringPending: { activePending: number; activeProcessing: number } = {
+    activePending: 0,
+    activeProcessing: 0,
+  };
+  if (currentUserEmail) {
+    const { data: allowed } = await supabase
+      .from("allowed_users")
+      .select("tenant_id")
+      .eq("email", currentUserEmail)
+      .maybeSingle();
+    if (allowed) {
+      scoringPending = await countScoringPending(supabase, {
+        tenantId: allowed.tenant_id,
+        staleMs: NOVA_SCORE_STALE_CLAIM_MS,
+      });
+    }
+  }
+  const pendingScoreCount = scoringPending.activePending;
+  const processingScoreCount = scoringPending.activeProcessing;
 
   const rows = data ?? [];
   const hasMore = rows.length > PAGE_SIZE;
@@ -156,20 +180,18 @@ export default async function RadarPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {pendingScoreCount !== null && pendingScoreCount > 0 && (
+          {(pendingScoreCount > 0 || processingScoreCount > 0) && (
             <form action={scoreLeadsAction}>
-              <button
-                type="submit"
-                className="rounded-md border border-hairline bg-background px-4 py-2 text-sm text-foreground transition-colors hover:border-foreground/40"
-                title={`Puntúa los próximos ${Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} leads sin score. Restantes tras el batch: ${Math.max(0, pendingScoreCount - NOVA_SCORE_BATCH_SIZE)}.`}
-              >
-                Puntuar {Math.min(pendingScoreCount, NOVA_SCORE_BATCH_SIZE)} pendientes
-                {pendingScoreCount > NOVA_SCORE_BATCH_SIZE && (
-                  <span className="ml-1 text-muted">
-                    /{pendingScoreCount}
-                  </span>
-                )}
-              </button>
+              <ScoreButton
+                activePending={pendingScoreCount}
+                activeProcessing={processingScoreCount}
+                batchSize={NOVA_SCORE_BATCH_SIZE}
+                title={
+                  processingScoreCount > 0
+                    ? `Un run está en vuelo (${processingScoreCount} leads reclamados). Espera a que termine.`
+                    : `Un solo click puntúa TODOS los pendientes en lotes sucesivos (batch de ${NOVA_SCORE_BATCH_SIZE}). Concurrency 1 por tenant.`
+                }
+              />
             </form>
           )}
           <Link
@@ -201,8 +223,11 @@ export default async function RadarPage({
           role="status"
           className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
         >
-          Batch de scoring encolado. Refresca en unos segundos para ver
-          los ICP scores y las transiciones a EN_RADAR.
+          Scoring encolado. Un solo click procesa TODOS los pendientes
+          en lotes sucesivos ({NOVA_SCORE_BATCH_SIZE} leads/batch,
+          concurrency 1 por tenant). Refresca en unos segundos: el
+          botón queda deshabilitado como &quot;Puntuando N…&quot;
+          mientras un run está en vuelo.
         </div>
       )}
 

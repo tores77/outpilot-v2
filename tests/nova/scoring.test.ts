@@ -12,10 +12,21 @@ import {
 } from "../fixtures/leads";
 import {
   FENCED_JSON,
+  FENCED_JSON_LANG_ON_OWN_LINE,
   MALFORMED_ENTRY,
   NOISY_JSON,
+  NOT_JSON_AT_ALL,
   RAW_JSON_ARRAY,
 } from "../fixtures/scoring-responses";
+
+// Wrapper para tests que solo se preocupan del array parseado
+// (bypass del discriminated union). Los tests de error usan
+// parseScoringResponse directamente y comprueban ok=false.
+function scoredOrFail(text: string): ScoredLead[] {
+  const r = parseScoringResponse(text);
+  if (!r.ok) throw new Error(`expected ok, got: ${r.error}`);
+  return r.scored;
+}
 
 const THRESHOLDS = { enRadar: 70, review: 40 };
 
@@ -57,7 +68,7 @@ describe("buildLeadPayload", () => {
 
 describe("parseScoringResponse", () => {
   it("parses a plain JSON array", () => {
-    const parsed = parseScoringResponse(RAW_JSON_ARRAY);
+    const parsed = scoredOrFail(RAW_JSON_ARRAY);
     expect(parsed).toHaveLength(3);
     const ana = parsed.find((r) => r.id === "fixture-ana");
     expect(ana?.score).toBe(69);
@@ -65,24 +76,33 @@ describe("parseScoringResponse", () => {
     expect(jose?.score).toBe(78);
   });
 
-  it("tolerates markdown code fences", () => {
-    const parsed = parseScoringResponse(FENCED_JSON);
+  it("tolerates markdown code fences (inline language marker)", () => {
+    const parsed = scoredOrFail(FENCED_JSON);
     expect(parsed).toHaveLength(3);
   });
 
+  it("REGRESIÓN 2026-09-25: fence con 'json' en línea propia (rompía el parser original)", () => {
+    // Haiku respondió con "```\njson\n[...]\n```" y el parser antiguo
+    // capturaba "json\n[...]" dentro del fence → Unexpected token '', "js..."
+    // El slice `[` → `]` limpia el prefijo "json\n" como side-effect.
+    const parsed = scoredOrFail(FENCED_JSON_LANG_ON_OWN_LINE);
+    expect(parsed).toHaveLength(3);
+    expect(parsed.find((r) => r.id === "fixture-ana")?.score).toBe(69);
+  });
+
   it("tolerates leading/trailing prose around the array", () => {
-    const parsed = parseScoringResponse(NOISY_JSON);
+    const parsed = scoredOrFail(NOISY_JSON);
     expect(parsed).toHaveLength(3);
   });
 
   it("skips malformed entries but preserves the good ones", () => {
-    const parsed = parseScoringResponse(MALFORMED_ENTRY);
+    const parsed = scoredOrFail(MALFORMED_ENTRY);
     const ids = parsed.map((r) => r.id).sort();
     expect(ids).toEqual(["fixture-clamp-high", "fixture-clamp-low", "fixture-good"]);
   });
 
   it("clamps scores into 0..100 (both extremes)", () => {
-    const parsed = parseScoringResponse(MALFORMED_ENTRY);
+    const parsed = scoredOrFail(MALFORMED_ENTRY);
     const high = parsed.find((r) => r.id === "fixture-clamp-high");
     expect(high?.score).toBe(100);
     expect(high?.sub_scores.sector_fit).toBe(100);
@@ -91,12 +111,19 @@ describe("parseScoringResponse", () => {
     expect(low?.sub_scores.sector_fit).toBe(0);
   });
 
-  it("throws on non-JSON input", () => {
-    expect(() => parseScoringResponse("not json at all")).toThrow();
+  it("returns ok:false on non-JSON input (no throw — caller decide)", () => {
+    const r = parseScoringResponse(NOT_JSON_AT_ALL);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(/^not_valid_json/);
+      expect(r.preview.length).toBeGreaterThan(0);
+    }
   });
 
-  it("throws when the payload is a JSON object instead of an array", () => {
-    expect(() => parseScoringResponse('{"id": "x"}')).toThrow();
+  it("returns ok:false cuando el payload es objeto en vez de array", () => {
+    const r = parseScoringResponse('{"id": "x"}');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("not_array");
   });
 });
 
@@ -183,7 +210,7 @@ describe("regression: the Ana/Jose anti-fabrication case", () => {
   });
 
   it("keeps Ana at 69 in the golden response, no promotion", () => {
-    const parsed = parseScoringResponse(RAW_JSON_ARRAY);
+    const parsed = scoredOrFail(RAW_JSON_ARRAY);
     const ana = parsed.find((r) => r.id === "fixture-ana");
     if (!ana) throw new Error("fixture ana missing");
     const decision = computeScoreUpdate("NUEVO", ana, THRESHOLDS);
@@ -192,7 +219,7 @@ describe("regression: the Ana/Jose anti-fabrication case", () => {
   });
 
   it("promotes Jose at 78 to EN_RADAR", () => {
-    const parsed = parseScoringResponse(RAW_JSON_ARRAY);
+    const parsed = scoredOrFail(RAW_JSON_ARRAY);
     const jose = parsed.find((r) => r.id === "fixture-jose");
     if (!jose) throw new Error("fixture jose missing");
     const decision = computeScoreUpdate("NUEVO", jose, THRESHOLDS);
@@ -201,7 +228,7 @@ describe("regression: the Ana/Jose anti-fabrication case", () => {
   });
 
   it("puts Epsilon on the review queue", () => {
-    const parsed = parseScoringResponse(RAW_JSON_ARRAY);
+    const parsed = scoredOrFail(RAW_JSON_ARRAY);
     const eps = parsed.find((r) => r.id === "fixture-epsilon");
     if (!eps) throw new Error("fixture epsilon missing");
     const decision = computeScoreUpdate("NUEVO", eps, THRESHOLDS);

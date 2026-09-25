@@ -7,6 +7,19 @@
 
 export const NOVA_SCORE_BATCH_SIZE = 20;
 
+// TTL para claims stuck (leads con scoring_claimed_at seteado por un
+// run que murió sin escribir icp_score). Al inicio de cada trigger,
+// sweep-stale resetea a NULL cualquier claim más antiguo que este
+// umbral. Alineado con el TTL de Lex (10 min): 20 leads × ~28-30 s
+// (medición 2026-09-25) = ~10 min por batch en el peor caso.
+export const NOVA_SCORE_STALE_CLAIM_MS = 10 * 60 * 1000;
+
+// Tope de batches por click. 1 click procesa todos los pendientes en
+// lotes sucesivos DENTRO del mismo run (concurrency-guarded 1 por
+// tenant); este cap evita runs eternos si el pool es enorme. 25 × 20
+// = 500 leads/click. Si al terminar quedan más, Pere clica de nuevo.
+export const NOVA_SCORE_MAX_BATCHES_PER_RUN = 25;
+
 // After a score arrives:
 //   score >= EN_RADAR   -> lead moves to estado='EN_RADAR' (only from NUEVO)
 //   score <  REVIEW     -> needs_review = true (revisión manual)
@@ -118,8 +131,12 @@ UMBRALES (los aplica el sistema, no tú)
 - <  ${NOVA_SCORE_THRESHOLD_REVIEW} -> needs_review = true (revisión manual)
 
 FORMATO DE RESPUESTA
-Responde EXCLUSIVAMENTE con un JSON array del mismo tamaño y orden que la
-entrada, sin markdown ni texto extra:
+Responde SOLO con el JSON array. NO uses bloque de código markdown
+(NADA de \`\`\`json ni \`\`\`), NO añadas explicación antes o después,
+NO empieces con "json". El primer carácter de tu respuesta debe ser
+"[" y el último "]".
+
+Mismo tamaño y orden que la entrada:
 [
   {
     "id": "<uuid del input>",

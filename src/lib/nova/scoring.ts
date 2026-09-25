@@ -136,30 +136,63 @@ function clampScore(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-function stripJsonFences(text: string): string {
-  const trimmed = text.trim();
-  // ```json ... ``` fenced
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced) return fenced[1].trim();
-  // Otherwise slice from the first '[' to the last ']'
-  const start = trimmed.indexOf("[");
-  const end = trimmed.lastIndexOf("]");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  return trimmed;
+/**
+ * Extrae el payload JSON del texto crudo devuelto por Haiku. Robusto
+ * ante los tres modos observados en producción:
+ *   1. Fence markdown: "```json\n[...]\n```" — regex captura el interior.
+ *   2. Fence + language en línea propia: "```\njson\n[...]\n```" — la
+ *      captura del regex viene "json\n[...]" y el slice por `[` / `]`
+ *      lo limpia. Este es el modo que rompía al parser original y
+ *      producía `Unexpected token '', "js..."` (el "js" era el
+ *      prefijo "json\n" no eliminado).
+ *   3. Texto llano con contexto: el modelo comenta antes/después.
+ *      Slice de primer `[` a último `]` recupera solo el array.
+ *
+ * Idempotente: aplicar N veces produce el mismo resultado.
+ */
+export function extractJsonArrayPayload(text: string): string {
+  let candidate = text.trim();
+  // 1. Fence pair opcional. Non-greedy para no atrapar bloques anidados.
+  const fenced = candidate.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) candidate = fenced[1].trim();
+  // 2. Slice de primer `[` a último `]` — Nova siempre emite ARRAY, así
+  //    que si el modelo añade "json\n" o comenta "Here is:", este slice
+  //    los elimina como side-effect.
+  const start = candidate.indexOf("[");
+  const end = candidate.lastIndexOf("]");
+  if (start !== -1 && end > start) return candidate.slice(start, end + 1);
+  // Sin `[…]` reconocible: devolvemos lo que haya para que JSON.parse
+  // falle con un mensaje útil (el caller lo captura como parse error).
+  return candidate;
 }
 
-export function parseScoringResponse(text: string): ScoredLead[] {
-  const jsonText = stripJsonFences(text);
+/**
+ * Resultado tolerante del parseo del batch. NO lanza — el caller
+ * decide qué hacer con un batch roto (liberar claims, marcar error,
+ * seguir con el siguiente batch sin tumbar el run).
+ */
+export type ScoreParseResult =
+  | { ok: true; scored: ScoredLead[] }
+  | { ok: false; error: string; preview: string };
+
+export function parseScoringResponse(text: string): ScoreParseResult {
+  const payload = extractJsonArrayPayload(text);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonText);
+    parsed = JSON.parse(payload);
   } catch (err) {
-    throw new Error(
-      `Nova scoring: response is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    return {
+      ok: false,
+      error: `not_valid_json: ${err instanceof Error ? err.message : String(err)}`,
+      preview: text.slice(0, 200),
+    };
   }
   if (!Array.isArray(parsed)) {
-    throw new Error("Nova scoring: response is not a JSON array");
+    return {
+      ok: false,
+      error: "not_array",
+      preview: text.slice(0, 200),
+    };
   }
   const out: ScoredLead[] = [];
   for (const item of parsed) {
@@ -183,5 +216,5 @@ export function parseScoringResponse(text: string): ScoredLead[] {
           : "(sin reasoning)",
     });
   }
-  return out;
+  return { ok: true, scored: out };
 }
