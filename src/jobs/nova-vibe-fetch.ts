@@ -33,6 +33,7 @@ import { inngest } from "@/lib/inngest";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import {
   bulkEnrichContacts,
+  enrichBusiness,
   fetchProspectsPage,
   getCreditsBalance,
 } from "@/lib/vibe/client";
@@ -40,6 +41,7 @@ import {
   extractFetchProspects,
   indexEnrichResponseByProspectId,
   mapProspectToLeadDraft,
+  mergeBusinessFirmographics,
   mergeEnrichedContact,
 } from "@/lib/vibe/mapper";
 import {
@@ -49,6 +51,7 @@ import {
   type LeadDraft,
 } from "@/lib/nova/cleanup";
 import {
+  VIBE_CREDITS_PER_BUSINESS_ENRICH,
   VIBE_CREDITS_PER_LEAD_ENRICH,
   VIBE_CREDITS_PER_LEAD_FETCH,
   VIBE_ENRICH_BATCH_SIZE,
@@ -59,7 +62,10 @@ import {
   VIBE_SMOKE_MAX_TITLE_RANK,
   estimateCredits,
 } from "@/config/vibe";
-import type { VibeApiFilters } from "@/lib/vibe/types";
+import type {
+  VibeApiFilters,
+  VibeBusinessData as VibeBusinessDataMinimal,
+} from "@/lib/vibe/types";
 import type { Database } from "@/lib/supabase/database.types";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
@@ -247,7 +253,50 @@ export const novaVibeFetch = inngest.createFunction(
     const enrichLatencyMs = Date.now() - enrichStartedAt;
     const enrichCreditsSpent = enrichRequestsSent * VIBE_CREDITS_PER_LEAD_ENRICH;
 
-    // ===== 5. Merge outcomes + re-check generic email =====
+    // ===== 5a. Business firmographics enrich (dedup por business_id) =====
+    //
+    // T024 (post-mortem scoring genérico): /prospects NO devuelve
+    // sector (linkedin_category) por prospect, así que Nova puntuaba
+    // a ciegas. Añadimos aquí un enrich por EMPRESA (dedup por
+    // business_id — típicamente 60-80% de leads son empresas
+    // distintas). Coste marginal: ~1 crédito por empresa única.
+    // Fuente descubierta en probe 2026-09-25:
+    // POST /businesses/firmographics/enrich devuelve
+    // linkedin_industry_category + business_description +
+    // number_of_employees_range + yearly_revenue_range + NAICS.
+    const survivingDrafts: LeadDraft[] = [];
+    for (const outcome of enrichedById.values()) {
+      if (outcome.ok && outcome.draft.email) survivingDrafts.push(outcome.draft);
+    }
+    const uniqueBusinessIds = new Set<string>();
+    for (const draft of survivingDrafts) {
+      const bid = draft.custom_fields?.business_id;
+      if (typeof bid === "string" && bid.length > 0) {
+        uniqueBusinessIds.add(bid);
+      }
+    }
+    const businessByCid = new Map<string, VibeBusinessDataMinimal>();
+    let businessEnrichRequestsSent = 0;
+    let businessEnrichReturned = 0;
+    const businessStartedAt = Date.now();
+    const businessIds = [...uniqueBusinessIds];
+    for (let i = 0; i < businessIds.length; i++) {
+      const bid = businessIds[i];
+      const result = await step.run(`business-enrich-${bid}`, async () => {
+        const response = await enrichBusiness({ business_id: bid });
+        return response.data ?? null;
+      });
+      businessEnrichRequestsSent += 1;
+      if (result) {
+        businessEnrichReturned += 1;
+        businessByCid.set(bid, result);
+      }
+    }
+    const businessLatencyMs = Date.now() - businessStartedAt;
+    const businessCreditsSpent =
+      businessEnrichRequestsSent * VIBE_CREDITS_PER_BUSINESS_ENRICH;
+
+    // ===== 5b. Merge firmographics + generic email check =====
     const rows: LeadInsert[] = [];
     let enrichedOk = 0;
     let enrichNoEmail = 0;
@@ -261,17 +310,35 @@ export const novaVibeFetch = inngest.createFunction(
         continue;
       }
       enrichedOk += 1;
-      const draft = outcome.draft;
-      if (!draft.email) {
+      const draft0 = outcome.draft;
+      const email = draft0.email;
+      if (!email) {
         enrichNoEmail += 1;
         continue;
       }
-      const needsReview = isGenericEmail(draft.email);
-      if (needsReview) markedReview += 1;
+      // Merge firmographics si tenemos el business (immutable — sin
+      // perder narrowing del email).
+      const bid = draft0.custom_fields?.business_id;
+      const draft =
+        typeof bid === "string" && businessByCid.has(bid)
+          ? mergeBusinessFirmographics(draft0, businessByCid.get(bid)!)
+          : draft0;
+
+      const isGeneric = isGenericEmail(email);
+      if (isGeneric) markedReview += 1;
+
+      // review_reason en custom_fields (T024): motivo estructurado
+      // para poder desglosar por qué se marcó (evita el problema de
+      // "61 needs_review sin razón" reportado por Pere).
+      const customFields: Record<string, string> = {
+        ...(draft.custom_fields ?? {}),
+        prospect_id: pid,
+      };
+      if (isGeneric) customFields.review_reason = "generic_email";
 
       rows.push({
         tenant_id: params.tenantId,
-        email: draft.email,
+        email,
         first_name: draft.first_name ?? null,
         last_name: draft.last_name ?? null,
         company: draft.company ?? null,
@@ -283,11 +350,8 @@ export const novaVibeFetch = inngest.createFunction(
         country: draft.country ?? null,
         city: draft.city ?? null,
         source: "vibe_prospecting",
-        needs_review: needsReview,
-        custom_fields: {
-          ...(draft.custom_fields ?? {}),
-          prospect_id: pid,
-        },
+        needs_review: isGeneric,
+        custom_fields: customFields,
       });
     }
 
@@ -345,6 +409,25 @@ export const novaVibeFetch = inngest.createFunction(
       if (error) console.error("[nova-vibe-fetch] api_costs(enrich) failed", error);
     });
 
+    if (businessEnrichRequestsSent > 0) {
+      await step.run("record-cost-business-enrich", async () => {
+        const { error } = await supabase.from("api_costs").insert({
+          tenant_id: params.tenantId,
+          task: "nova.vibe_business_enrich",
+          model: "vibe_prospecting",
+          tokens_in: businessEnrichRequestsSent,
+          tokens_out: businessEnrichReturned,
+          cost_usd: businessCreditsSpent,
+          latency_ms: businessLatencyMs,
+        });
+        if (error)
+          console.error(
+            "[nova-vibe-fetch] api_costs(business_enrich) failed",
+            error,
+          );
+      });
+    }
+
     // ===== 8. events row with the full run context =====
     await step.run("record-event", async () => {
       const { error } = await supabase.from("events").insert({
@@ -371,7 +454,11 @@ export const novaVibeFetch = inngest.createFunction(
           inserted,
           cost_fetch_credits: fetchCreditsSpent,
           cost_enrich_credits: enrichCreditsSpent,
-          cost_total_credits: fetchCreditsSpent + enrichCreditsSpent,
+          cost_business_enrich_credits: businessCreditsSpent,
+          business_enrich_requests: businessEnrichRequestsSent,
+          business_enrich_returned: businessEnrichReturned,
+          cost_total_credits:
+            fetchCreditsSpent + enrichCreditsSpent + businessCreditsSpent,
           cost_source: "estimated",
           // T024 calibración: saldo real reportado por GET /credits
           // antes/después. `credits_charged_real` es la diferencia

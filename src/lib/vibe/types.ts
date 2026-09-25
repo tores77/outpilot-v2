@@ -119,6 +119,43 @@ export type VibeBulkEnrichResponse = {
   entity_id?: string | null;
 };
 
+// ===== business firmographics enrich =====
+//
+// POST /businesses/firmographics/enrich con { business_id: <id> }.
+// Coste 1 crédito por lookup (medido 2026-09-25). Devuelve sector
+// (linkedin_industry_category), descripción, tamaño, revenue y
+// clasificaciones NAICS/SIC. Se usa post-cleanup para enriquecer las
+// empresas únicas que pasan a scoring (evita pagar por duplicados).
+
+export type VibeBusinessEnrichRequest = {
+  business_id: string;
+};
+
+export type VibeBusinessData = {
+  business_id?: string;
+  name?: string | null;
+  business_description?: string | null;
+  website?: string | null;
+  country_name?: string | null;
+  region_name?: string | null;
+  city_name?: string | null;
+  naics?: string | null;
+  naics_description?: string | null;
+  sic_code?: string | null;
+  sic_code_description?: string | null;
+  number_of_employees_range?: string | null;
+  yearly_revenue_range?: string | null;
+  linkedin_industry_category?: string | null;
+  linkedin_profile?: string | null;
+  [key: string]: unknown;
+};
+
+export type VibeBusinessEnrichResponse = {
+  response_context?: VibeResponseContext;
+  data?: VibeBusinessData | null;
+  entity_id?: string | null;
+};
+
 // ===== credits =====
 //
 // GET /credits (gratis, sin body). Descubierto en probe 2026-09-25

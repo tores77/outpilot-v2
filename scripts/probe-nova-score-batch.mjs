@@ -26,10 +26,12 @@ import { readFileSync, existsSync } from "node:fs";
 // Imports puros (sin server-only): safe desde script Node.
 import { buildLeadPayload, parseScoringResponse } from "../src/lib/nova/scoring.ts";
 import {
-  NOVA_SCORING_SYSTEM_PROMPT,
+  buildScoringSystemPrompt,
+  NOVA_ACTIVE_ICP_SLUG,
   NOVA_SCORE_BATCH_SIZE,
   NOVA_SCORE_MAX_TOKENS,
 } from "../src/config/scoring.ts";
+import { getIcpBySlug } from "../src/config/icps.ts";
 
 // Carga .env.local manual (tsx no honra --env-file de Node).
 if (existsSync(".env.local")) {
@@ -115,6 +117,14 @@ const anthropicKey = requireEnv("ANTHROPIC_API_KEY");
 const anthropic = new Anthropic({ apiKey: anthropicKey });
 const MODEL = "claude-haiku-4-5-20251001";
 
+// Prompt inyectado desde el ICP activo (mismo que el job en producción).
+const activeIcp = getIcpBySlug(NOVA_ACTIVE_ICP_SLUG);
+if (!activeIcp) {
+  console.error(`[probe] ICP '${NOVA_ACTIVE_ICP_SLUG}' no existe`);
+  process.exit(1);
+}
+const systemPrompt = buildScoringSystemPrompt(activeIcp.scoringCriteria);
+console.log(`\n[probe] system prompt: ${systemPrompt.length} chars`);
 console.log(`\n[probe] enviando a ${MODEL}...`);
 const t0 = Date.now();
 let resp;
@@ -125,7 +135,7 @@ try {
     // job en producción). Override con MAX_TOKENS=N para reproducir
     // el bug del 2026-09-25 (MAX_TOKENS=3000 → truncado).
     max_tokens: Number(process.env.MAX_TOKENS ?? String(NOVA_SCORE_MAX_TOKENS)),
-    system: NOVA_SCORING_SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
   });
 } catch (err) {

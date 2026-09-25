@@ -70,6 +70,36 @@ export type IcpStep = {
 //     dentro del bodyHtml, no como variable de mailbox).
 export type IcpChannel = "email_cold";
 
+// T024 (post-mortem scoring genérico): Nova ya no lleva un ICP hardcoded
+// en el prompt. Cada IcpTemplate declara su propio scoringCriteria que
+// Nova inyecta en el system prompt. El gate anti-fabricación + señal
+// verificable se mantiene igual para todos los ICPs (vive en el prompt
+// base, no aquí). Aquí solo van los criterios específicos del ICP.
+export type IcpScoringCriteria = {
+  // 1-2 frases que abren el system prompt (contexto del ICP). Ej:
+  // "Fabricantes españoles con producto propio que exportan a EU."
+  summary: string;
+  // "Encaja": patrones que suman. Frases cortas descriptivas — Nova
+  // las lee tal cual.
+  fits: readonly string[];
+  // "Excluye": patrones que descartan (o bajan mucho el score).
+  excludes: readonly string[];
+  // Cargos que autorizan score alto sin tope adicional.
+  primaryDeciders: readonly string[];
+  // Cargos secundarios: se puntúan pero con tope máximo por debajo
+  // del EN_RADAR (evita promover a CFO/COO en solitario).
+  secondaryDeciders: readonly string[];
+  // Score máximo permitido cuando el título coincide SOLO con
+  // secondaryDeciders. Aplicado por gate mecánico en scoring.ts.
+  secondaryMaxScore: number;
+  // Señales positivas verificables que sugieren fit (ej: "exporta",
+  // "compite con italianos"). Se citan como bullets para orientar al
+  // modelo, sin ser reglas duras.
+  positiveSignals: readonly string[];
+  // Señales negativas equivalentes.
+  negativeSignals: readonly string[];
+};
+
 export type IcpTemplate = {
   slug: string;
   name: string;
@@ -91,6 +121,9 @@ export type IcpTemplate = {
   // el resto es solo-lectura. Opcional para ICPs que no cargan desde
   // Vibe (no aplica en v2.1).
   vibeFilters?: VibeApiFilters;
+  // T024 (post-mortem scoring): criterios que Nova inyecta en el
+  // system prompt de scoring. Opcional para ICPs que no usan Nova.
+  scoringCriteria?: IcpScoringCriteria;
   steps: readonly IcpStep[];
 };
 
@@ -176,6 +209,56 @@ const industrialPremiumEs_vibeFilters: VibeApiFilters = {
   has_contact_details: { value: "email" },
 };
 
+// T024 (post-mortem scoring genérico): criterios que Nova inyecta
+// en el system prompt. NO es el ICP genérico anterior que puntuaba
+// mal a fabricantes industriales (Intarcon 42, Keyter 42) y bien a
+// e-commerces D2C (Sklum 72). La orientación real de Umania es
+// fabricantes industriales españoles que exportan.
+const industrialPremiumEs_scoringCriteria: IcpScoringCriteria = {
+  summary:
+    "Fabricantes españoles con producto propio que compiten en industria/B2B — climatización, maquinaria, mobiliario, componentes. Exportan o luchan con italianos/alemanes/franceses.",
+  fits: [
+    "fabricante español con producto propio (marca propia, no maquila para terceros exclusivamente)",
+    "industrial o B2B: climatización, maquinaria, mobiliario, componentes",
+    "OEM y B2B son POSITIVOS (no penalizar por ser B2B)",
+    "exporta o compite fuera de España con italianos, alemanes o franceses",
+    "10-500 empleados (sweet spot 50-500 con revenue medio-alto)",
+  ],
+  excludes: [
+    "e-commerce puro sin producto propio fabricado",
+    "marketplaces",
+    "filiales de multinacionales extranjeras",
+    "servicios profesionales (consultoría, abogados, auditoría)",
+    "distribuidores sin fabricación",
+  ],
+  primaryDeciders: [
+    "CEO",
+    "Director General",
+    "Managing Director",
+    "propietario",
+    "founder",
+    "presidente",
+    "director comercial",
+    "director de exportación",
+    "export manager",
+  ],
+  secondaryDeciders: ["CFO", "COO", "director financiero", "director de operaciones"],
+  secondaryMaxScore: 65,
+  positiveSignals: [
+    "web multiidioma (indica intención exportadora)",
+    "catálogo técnico de producto propio",
+    "sección de partners/distribuidores internacionales",
+    "referencias a ferias sectoriales (Interzum, BAU, MCE, etc.)",
+    "linkedin de la empresa con contenido de producto/casos",
+  ],
+  negativeSignals: [
+    "web solo en español para mercado local",
+    "sector sin fabricación (servicios, retail, comercio)",
+    "empresa < 10 empleados (probable estudio/consultora individual)",
+    "sin dominio propio (uso de gmail.com, hotmail.com)",
+  ],
+};
+
 const industrialPremiumEs: IcpTemplate = {
   slug: "industrial_premium_es",
   name: "Industrial Premium ES",
@@ -185,6 +268,7 @@ const industrialPremiumEs: IcpTemplate = {
   openerFallback: industrialPremiumEs_openerFallback,
   legalFooter: industrialPremiumEs_legalFooter,
   vibeFilters: industrialPremiumEs_vibeFilters,
+  scoringCriteria: industrialPremiumEs_scoringCriteria,
   steps: [
     {
       index: 1,

@@ -20,6 +20,7 @@ import type { LeadDraft } from "@/lib/nova/cleanup";
 import type {
   VibeBulkEnrichItem,
   VibeBulkEnrichResponse,
+  VibeBusinessData,
   VibeEnrichedContact,
   VibeFetchResponse,
   VibeProspect,
@@ -93,10 +94,47 @@ export function mapProspectToLeadDraft(p: VibeProspect): LeadDraft | null {
     title: pickString(p.job_title),
     linkedin_url: pickLinkedin(p),
     website: pickString(p.company_website),
+    // /prospects NO devuelve linkedin_category directamente (verificado
+    // en probe 2026-09-25). Sector se rellena aparte con
+    // /businesses/firmographics/enrich (mergeBusinessFirmographics).
     sector: pickString(p.linkedin_category),
     country: pickString(p.country_name, p.country_code),
     city: pickString(p.city),
     custom_fields,
+  };
+}
+
+/**
+ * Merge de un lead con el firmographics de su empresa. Actualiza:
+ *   - sector          ← linkedin_industry_category (si el lead no tenía)
+ *   - custom_fields.company_description
+ *   - custom_fields.company_size (number_of_employees_range)
+ *   - custom_fields.company_revenue (yearly_revenue_range)
+ *   - custom_fields.naics_description
+ * Nunca sobrescribe sector si el lead ya lo tenía (defensivo).
+ * Pure — sin side effects.
+ */
+export function mergeBusinessFirmographics(
+  draft: LeadDraft,
+  business: VibeBusinessData,
+): LeadDraft {
+  const custom: Record<string, string> = { ...(draft.custom_fields ?? {}) };
+  const desc = pickString(business.business_description);
+  if (desc) custom.company_description = desc;
+  const size = pickString(business.number_of_employees_range);
+  if (size) custom.company_size = size;
+  const revenue = pickString(business.yearly_revenue_range);
+  if (revenue) custom.company_revenue = revenue;
+  const naics = pickString(business.naics_description);
+  if (naics) custom.naics_description = naics;
+
+  const sectorFromBusiness = pickString(business.linkedin_industry_category);
+  const nextSector = draft.sector ?? sectorFromBusiness;
+
+  return {
+    ...draft,
+    sector: nextSector,
+    custom_fields: custom,
   };
 }
 

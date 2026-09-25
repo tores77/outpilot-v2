@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyScoreMechanicalGates,
   buildLeadPayload,
+  classifyDecider,
   computeScoreUpdate,
   parseScoringResponse,
   type ScoredLead,
@@ -255,5 +257,129 @@ describe("regression: the Ana/Jose anti-fabrication case", () => {
     // Sanity: the fixture is consistent with the "insufficient data" heuristic
     expect(EPSILON_INSUFFICIENT_DATA.first_name).toBeUndefined();
     expect(EPSILON_INSUFFICIENT_DATA.title).toBeUndefined();
+  });
+});
+
+// ==============================================================
+// T024: gate mecánico anti-fabricación de sector (caso Linq)
+// ==============================================================
+
+describe("classifyDecider (T024)", () => {
+  const primary = ["CEO", "Director General", "propietario"];
+  const secondary = ["CFO", "COO"];
+
+  it("case-insensitive contains match para primary", () => {
+    expect(classifyDecider("CEO at Acme", primary, secondary)).toBe("primary");
+    expect(classifyDecider("ceo & founder", primary, secondary)).toBe("primary");
+    expect(classifyDecider("Director General", primary, secondary)).toBe("primary");
+  });
+
+  it("matchea secondary si el título solo tiene CFO/COO", () => {
+    expect(classifyDecider("CFO at Something", primary, secondary)).toBe("secondary");
+    expect(classifyDecider("Chief Operating Officer / COO", primary, secondary)).toBe("secondary");
+  });
+
+  it("primary gana sobre secondary si ambos matchean", () => {
+    // "CEO/CFO" — primary evaluado primero
+    expect(classifyDecider("CEO/CFO", primary, secondary)).toBe("primary");
+  });
+
+  it("neither si no matchea ni primary ni secondary", () => {
+    expect(classifyDecider("Marketing Manager", primary, secondary)).toBe("neither");
+    expect(classifyDecider(null, primary, secondary)).toBe("neither");
+    expect(classifyDecider("", primary, secondary)).toBe("neither");
+  });
+});
+
+describe("applyScoreMechanicalGates (T024)", () => {
+  const primary = ["CEO", "Founder"];
+  const secondary = ["CFO", "COO"];
+  const opts = {
+    secondaryMaxScore: 65,
+    primaryDeciders: primary,
+    secondaryDeciders: secondary,
+  };
+
+  function scoredLead(overrides: Partial<ScoredLead>): ScoredLead {
+    return {
+      id: "test",
+      score: 72,
+      sub_scores: {
+        sector_fit: 70,
+        seniority_fit: 80,
+        brand_signal: 70,
+        budget_signal: 60,
+      },
+      reasoning: "test",
+      reasoning_fields_used: ["sector", "title"],
+      ...overrides,
+    };
+  }
+
+  it("SIN gate: score alto con sector citado y CEO → sin cambios", () => {
+    const r = applyScoreMechanicalGates(
+      scoredLead({ score: 78 }),
+      { title: "CEO" },
+      opts,
+    );
+    expect(r.score).toBe(78);
+    expect(r.gated).toEqual([]);
+    expect(r.needs_review_reasons).toEqual([]);
+  });
+
+  it("REGRESIÓN caso Linq: score 72 sin sector citado → capa a 50 + sector_unknown", () => {
+    // Linq (linqcase.com, fundas de móvil) puntuado 72 porque Haiku
+    // afirmó "despacho de abogados boutique" — sector inventado. El
+    // gate mecánico cata a 50 y marca needs_review.
+    const linq = scoredLead({
+      id: "linq",
+      score: 72,
+      reasoning:
+        "Despacho de abogados boutique en Madrid. Sector servicios profesionales, encaje bajo.",
+      reasoning_fields_used: ["title", "city"], // NO cita sector/website_summary
+    });
+    const r = applyScoreMechanicalGates(linq, { title: "CEO" }, opts);
+    expect(r.score).toBe(50);
+    expect(r.gated).toContain("sector_unknown");
+    expect(r.needs_review_reasons).toContain("sector_unknown");
+  });
+
+  it("REGRESIÓN cap secundario: CFO puntuado 78 → capa a 65", () => {
+    const cfo = scoredLead({
+      score: 78,
+      reasoning_fields_used: ["sector", "title", "website"], // sector citado, no dispara sector_unknown
+    });
+    const r = applyScoreMechanicalGates(cfo, { title: "CFO" }, opts);
+    expect(r.score).toBe(65);
+    expect(r.gated).toContain("secondary_decider_cap");
+    expect(r.needs_review_reasons.some((s) => s.startsWith("secondary_decider_cap:"))).toBe(true);
+  });
+
+  it("los dos gates se pueden disparar a la vez", () => {
+    const cfoSinSector = scoredLead({
+      score: 85,
+      reasoning_fields_used: ["title"], // sin sector
+    });
+    const r = applyScoreMechanicalGates(cfoSinSector, { title: "CFO" }, opts);
+    // sector_unknown baja a 50, secondary_cap baja a 65 — pero 50 < 65, así que solo aplica el sector_unknown
+    expect(r.score).toBe(50);
+    expect(r.gated).toContain("sector_unknown");
+  });
+
+  it("score ≤ 50 sin sector citado NO se degrada más (el gate solo baja, no marca sin razón)", () => {
+    const low = scoredLead({ score: 42, reasoning_fields_used: ["title"] });
+    const r = applyScoreMechanicalGates(low, { title: "CEO" }, opts);
+    expect(r.score).toBe(42);
+    expect(r.gated).toEqual([]);
+  });
+
+  it("reasoning_fields_used ausente equivale a 'sin citar sector' → gate activo si score > 50", () => {
+    const noFields = scoredLead({
+      score: 72,
+      reasoning_fields_used: undefined,
+    });
+    const r = applyScoreMechanicalGates(noFields, { title: "CEO" }, opts);
+    expect(r.score).toBe(50);
+    expect(r.gated).toContain("sector_unknown");
   });
 });

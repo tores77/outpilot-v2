@@ -33,6 +33,7 @@ import { inngest } from "@/lib/inngest";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { callClaude } from "@/lib/ai/claude";
 import {
+  applyScoreMechanicalGates,
   buildLeadPayload,
   computeScoreUpdate,
   parseScoringResponse,
@@ -40,14 +41,16 @@ import {
   type ScoredLead,
 } from "@/lib/nova/scoring";
 import {
+  NOVA_ACTIVE_ICP_SLUG,
   NOVA_SCORE_BATCH_SIZE,
   NOVA_SCORE_MAX_BATCHES_PER_RUN,
   NOVA_SCORE_MAX_TOKENS,
   NOVA_SCORE_STALE_CLAIM_MS,
   NOVA_SCORE_THRESHOLD_EN_RADAR,
   NOVA_SCORE_THRESHOLD_REVIEW,
-  NOVA_SCORING_SYSTEM_PROMPT,
+  buildScoringSystemPrompt,
 } from "@/config/scoring";
+import { getIcpBySlug } from "@/config/icps";
 import {
   claimPendingScoring,
   countScoringPending,
@@ -108,6 +111,16 @@ export const novaScore = inngest.createFunction(
     if (!tenantId) throw new Error("nova-score: missing tenantId");
 
     const supabase = createSupabaseServiceClient();
+
+    // ICP activo (v2.1: uno solo). Resuelto una vez y su prompt se
+    // reutiliza en todos los batches del run.
+    const activeIcp = getIcpBySlug(NOVA_ACTIVE_ICP_SLUG);
+    if (!activeIcp) {
+      throw new Error(
+        `nova-score: ICP '${NOVA_ACTIVE_ICP_SLUG}' no existe en config/icps.ts`,
+      );
+    }
+    const systemPrompt = buildScoringSystemPrompt(activeIcp.scoringCriteria);
 
     // ===== 1. Sweep de claims stuck (opportunistic) =====
     const sweptCount = await step.run("sweep-stale", () =>
@@ -173,7 +186,7 @@ export const novaScore = inngest.createFunction(
           callClaude({
             task: "nova.score",
             tenantId,
-            system: NOVA_SCORING_SYSTEM_PROMPT,
+            system: systemPrompt,
             maxTokens: NOVA_SCORE_MAX_TOKENS,
             messages: [{ role: "user", content: userMessage }],
           }),
@@ -279,12 +292,37 @@ export const novaScore = inngest.createFunction(
           continue;
         }
         scoredCount += 1;
-        const decision = computeScoreUpdate(lead.estado, result, {
+
+        // Gates mecánicos T024 (anti-fabricación de sector +
+        // cap de secondary deciders). Producen un score potencialmente
+        // más bajo que el que devolvió Haiku y lista de motivos.
+        const gate = applyScoreMechanicalGates(result, lead, {
+          secondaryMaxScore:
+            activeIcp.scoringCriteria?.secondaryMaxScore ?? 100,
+          primaryDeciders: activeIcp.scoringCriteria?.primaryDeciders ?? [],
+          secondaryDeciders:
+            activeIcp.scoringCriteria?.secondaryDeciders ?? [],
+        });
+        const gatedResult: ScoredLead = { ...result, score: gate.score };
+
+        const decision = computeScoreUpdate(lead.estado, gatedResult, {
           enRadar: NOVA_SCORE_THRESHOLD_EN_RADAR,
           review: NOVA_SCORE_THRESHOLD_REVIEW,
         });
+
+        // Gates disparados fuerzan needs_review (aunque el score
+        // final quede por encima del threshold de review).
+        if (gate.gated.length > 0) decision.needs_review = true;
+
         if (decision.estado === "EN_RADAR") promoted += 1;
         if (decision.needs_review) flaggedReview += 1;
+
+        const reviewReasons = [
+          ...gate.needs_review_reasons,
+          ...(decision.needs_review && gate.needs_review_reasons.length === 0
+            ? [`low_score:${decision.icp_score}`]
+            : []),
+        ];
 
         const existingCustom =
           lead.custom_fields && typeof lead.custom_fields === "object"
@@ -298,6 +336,14 @@ export const novaScore = inngest.createFunction(
             ...existingCustom,
             score_reasoning: decision.score_reasoning,
             score_sub_scores: decision.sub_scores,
+            score_fields_used: result.reasoning_fields_used ?? [],
+            ...(reviewReasons.length > 0
+              ? { review_reason: reviewReasons.join(",") }
+              : {}),
+            ...(gate.gated.length > 0 ? { score_gates: gate.gated } : {}),
+            ...(result.score !== gate.score
+              ? { score_raw_before_gates: result.score }
+              : {}),
           },
         };
 

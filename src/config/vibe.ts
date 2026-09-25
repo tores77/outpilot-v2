@@ -34,6 +34,11 @@ export const VIBE_STATS_ENDPOINT = "/prospects/stats";
 export const VIBE_FETCH_ENDPOINT = "/prospects";
 export const VIBE_BULK_ENRICH_ENDPOINT =
   "/prospects/contacts_information/bulk_enrich";
+// POST business_id → firmographics (sector, descripción, tamaño,
+// revenue). 1 crédito por lookup. Descubierto 2026-09-25.
+export const VIBE_BUSINESS_ENRICH_ENDPOINT =
+  "/businesses/firmographics/enrich";
+export const VIBE_CREDITS_PER_BUSINESS_ENRICH = 1;
 // GET (gratis). Descubierto en probe 2026-09-25. Devuelve
 // { allocated_credits, remaining_credits, account_type }.
 export const VIBE_CREDITS_ENDPOINT = "/credits";

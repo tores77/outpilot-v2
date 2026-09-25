@@ -21,6 +21,12 @@ export type LeadForScoring = {
   custom_fields?: Record<string, unknown> | null;
 };
 
+// Título → categoría de decisor para el gate mecánico. Ver
+// computeScoreUpdate: cuando el título del lead SOLO matchea
+// secondaryDeciders del ICP, el score global se capa a
+// secondaryMaxScore aunque Haiku puntúe más alto.
+export type DeciderCategory = "primary" | "secondary" | "neither";
+
 export type LeadPromptEntry = {
   id: string;
   first_name?: string;
@@ -90,12 +96,108 @@ export type ScoredLead = {
   score: number;
   sub_scores: SubScores;
   reasoning: string;
+  // T024: campos del lead que el modelo dice haber usado. Se usa en
+  // el gate mecánico anti-fabricación de sector — si esta lista no
+  // contiene sector/website_summary/company_description/linkedin_category,
+  // el score > 50 se capa. Opcional para tolerancia con respuestas
+  // sin el campo (parser degrada score en ese caso).
+  reasoning_fields_used?: string[];
 };
 
 export type ScoreThresholds = {
   enRadar: number;
   review: number;
 };
+
+// T024 gate mecánico anti-fabricación de sector (caso Linq real:
+// puntuado 72 porque Haiku afirmó "despacho de abogados boutique" —
+// inventado). Estas señales tienen que estar en el fields_used citado
+// por el modelo para autorizar un score alto. Si el modelo no las
+// cita pero puntúa alto, el gate capa el score y marca needs_review.
+const SECTOR_FIELDS: readonly string[] = [
+  "sector",
+  "website_summary",
+  "company_description",
+  "linkedin_category",
+];
+
+// Título matchea primary/secondary/ninguno según el ICP. Comparación
+// case-insensitive con contains — cubre variantes de idioma sin
+// tener que enumerar todas las inflexiones ("CEO", "ceo", "chief
+// executive officer" matchean "ceo" en primaryDeciders).
+export function classifyDecider(
+  title: string | null | undefined,
+  primaryDeciders: readonly string[],
+  secondaryDeciders: readonly string[],
+): DeciderCategory {
+  if (!title || title.trim() === "") return "neither";
+  const norm = title.toLowerCase();
+  for (const p of primaryDeciders) {
+    if (norm.includes(p.toLowerCase())) return "primary";
+  }
+  for (const s of secondaryDeciders) {
+    if (norm.includes(s.toLowerCase())) return "secondary";
+  }
+  return "neither";
+}
+
+export type MechanicalGateOptions = {
+  // Cuando el título matchea solo secondaryDeciders, capamos aquí.
+  secondaryMaxScore: number;
+  primaryDeciders: readonly string[];
+  secondaryDeciders: readonly string[];
+};
+
+export type MechanicalGateResult = {
+  score: number;
+  needs_review_reasons: string[];
+  gated: Array<"sector_unknown" | "secondary_decider_cap">;
+};
+
+/**
+ * Aplica gates mecánicos post-modelo sobre el score/reasoning que
+ * devuelve Haiku. Nunca sube el score; solo lo baja. Se combina con
+ * computeScoreUpdate para producir la decisión final.
+ *
+ * Gates:
+ *   1. sector_unknown: si el reasoning no cita ningún campo de sector
+ *      (SECTOR_FIELDS) Y el score > 50, capa a 50 y marca la razón.
+ *   2. secondary_decider_cap: si el título matchea SOLO secondaryDeciders
+ *      del ICP y el score supera secondaryMaxScore, capa ahí.
+ */
+export function applyScoreMechanicalGates(
+  raw: ScoredLead,
+  lead: Pick<LeadForScoring, "title">,
+  opts: MechanicalGateOptions,
+): MechanicalGateResult {
+  let score = raw.score;
+  const reasons: string[] = [];
+  const gated: Array<"sector_unknown" | "secondary_decider_cap"> = [];
+
+  // Gate 1: sector_unknown
+  const citesSector = raw.reasoning_fields_used
+    ? raw.reasoning_fields_used.some((f) => SECTOR_FIELDS.includes(f))
+    : false;
+  if (!citesSector && score > 50) {
+    score = 50;
+    reasons.push("sector_unknown");
+    gated.push("sector_unknown");
+  }
+
+  // Gate 2: secondary_decider_cap
+  const category = classifyDecider(
+    lead.title,
+    opts.primaryDeciders,
+    opts.secondaryDeciders,
+  );
+  if (category === "secondary" && score > opts.secondaryMaxScore) {
+    score = opts.secondaryMaxScore;
+    reasons.push(`secondary_decider_cap:${opts.secondaryMaxScore}`);
+    gated.push("secondary_decider_cap");
+  }
+
+  return { score, needs_review_reasons: reasons, gated };
+}
 
 // Pure state-machine decision for one lead's post-score update.
 // - `estado` only advances (NUEVO -> EN_RADAR). Later states like
@@ -201,6 +303,9 @@ export function parseScoringResponse(text: string): ScoreParseResult {
     const id = typeof record.id === "string" ? record.id : null;
     if (!id) continue;
     const sub = (record.sub_scores as Record<string, unknown> | undefined) ?? {};
+    const fieldsUsed = Array.isArray(record.fields_used)
+      ? record.fields_used.filter((v): v is string => typeof v === "string")
+      : undefined;
     out.push({
       id,
       score: clampScore(record.score),
@@ -214,6 +319,7 @@ export function parseScoringResponse(text: string): ScoreParseResult {
         typeof record.reasoning === "string"
           ? record.reasoning
           : "(sin reasoning)",
+      reasoning_fields_used: fieldsUsed,
     });
   }
   return { ok: true, scored: out };

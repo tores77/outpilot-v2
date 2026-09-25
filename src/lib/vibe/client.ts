@@ -17,6 +17,7 @@ import "server-only";
 import {
   VIBE_BASE_URL,
   VIBE_BULK_ENRICH_ENDPOINT,
+  VIBE_BUSINESS_ENRICH_ENDPOINT,
   VIBE_CREDITS_ENDPOINT,
   VIBE_FETCH_ENDPOINT,
   VIBE_MAX_RETRIES,
@@ -26,6 +27,8 @@ import {
 import type {
   VibeBulkEnrichRequest,
   VibeBulkEnrichResponse,
+  VibeBusinessEnrichRequest,
+  VibeBusinessEnrichResponse,
   VibeCreditsResponse,
   VibeFetchRequest,
   VibeFetchResponse,
@@ -105,6 +108,18 @@ export function bulkEnrichContacts(
   request: VibeBulkEnrichRequest,
 ): Promise<VibeBulkEnrichResponse> {
   return vibeRequest(VIBE_BULK_ENRICH_ENDPOINT, request);
+}
+
+/**
+ * POST /businesses/firmographics/enrich. Uno a uno (no hay batch en
+ * este endpoint según probe). Devuelve sector
+ * (linkedin_industry_category), descripción, tamaño, revenue, NAICS.
+ * 1 crédito por lookup.
+ */
+export function enrichBusiness(
+  request: VibeBusinessEnrichRequest,
+): Promise<VibeBusinessEnrichResponse> {
+  return vibeRequest(VIBE_BUSINESS_ENRICH_ENDPOINT, request);
 }
 
 /**
