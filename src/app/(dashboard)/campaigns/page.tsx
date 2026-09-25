@@ -9,6 +9,7 @@ import { getVoltCounts } from "@/lib/volt/counts";
 import {
   createLemlistCampaignAction,
   personalizeCampaignAction,
+  prepareSmokeAction,
   syncLeadsToLemlistAction,
 } from "./actions";
 import { PersonalizeButton } from "./personalize-button";
@@ -38,6 +39,7 @@ type CampaignsSearchParams = {
   personalization_started?: string;
   volt_create_started?: string;
   volt_sync_started?: string;
+  volt_smoke_started?: string;
   error?: string;
 };
 
@@ -48,6 +50,7 @@ type CampaignRow = {
   icp_slug: string | null;
   provider_external_id: string | null;
   sequence: unknown;
+  smoke_size: number | null;
   created_at: string;
 };
 
@@ -75,7 +78,7 @@ export default async function CampaignsPage({
   const { data, error } = await supabase
     .from("campaigns")
     .select(
-      "id, name, status, icp_slug, provider_external_id, sequence, created_at",
+      "id, name, status, icp_slug, provider_external_id, sequence, smoke_size, created_at",
     )
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -173,6 +176,17 @@ export default async function CampaignsPage({
         </div>
       )}
 
+      {sp.volt_smoke_started && (
+        <div
+          role="status"
+          className="rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-foreground"
+        >
+          &quot;Preparar smoke&quot; encolado. Volt seleccionará los leads
+          y transicionará la campaña a <code>smoke_test</code>. Revisa el
+          resultado en Inngest y refresca esta página.
+        </div>
+      )}
+
       {sp.error && (
         <div
           role="alert"
@@ -191,6 +205,7 @@ export default async function CampaignsPage({
               <th className="px-4 py-3 font-medium">ICP</th>
               <th className="px-4 py-3 font-medium">Steps</th>
               <th className="px-4 py-3 font-medium">Creada</th>
+              <th className="px-4 py-3 font-medium">Smoke</th>
               <th className="px-4 py-3 font-medium">Personalización</th>
               <th className="px-4 py-3 font-medium">Sync Lemlist</th>
             </tr>
@@ -199,7 +214,7 @@ export default async function CampaignsPage({
             {campaigns.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-10 text-center text-sm text-muted"
                 >
                   Aún no hay campañas. Crea la primera desde{" "}
@@ -255,6 +270,25 @@ export default async function CampaignsPage({
                   <td className="px-4 py-3 text-foreground">{stepCount}</td>
                   <td className="px-4 py-3 text-xs text-muted">
                     {formatDate(c.created_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.status === "draft" && c.smoke_size ? (
+                      <form action={prepareSmokeAction}>
+                        <input type="hidden" name="campaign_id" value={c.id} />
+                        <SyncButton
+                          label={`Preparar smoke (${c.smoke_size})`}
+                          title={`Selecciona ${c.smoke_size} leads y transiciona a smoke_test. Guard: pool insuficiente aborta.`}
+                        />
+                      </form>
+                    ) : c.status === "smoke_test" ? (
+                      <span className="text-xs text-muted">
+                        Preparado ({c.smoke_size ?? "?"})
+                      </span>
+                    ) : c.status === "draft" && !c.smoke_size ? (
+                      <span className="text-xs text-muted">Sin smoke_size</span>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {activeProcessing > 0 ? (

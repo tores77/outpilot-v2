@@ -4,6 +4,7 @@
 //   - personalizeCampaignAction (T022): encola Lex.
 //   - createLemlistCampaignAction (T023): encola volt-create-campaign.
 //   - syncLeadsToLemlistAction (T023): encola volt-sync-leads.
+//   - prepareSmokeAction (T024): encola volt-smoke-prepare.
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -153,5 +154,63 @@ export async function syncLeadsToLemlistAction(
   revalidatePath("/campaigns");
   redirect(
     `/campaigns?volt_sync_started=${encodeURIComponent(campaignId as string)}`,
+  );
+}
+
+// T024: encola volt-smoke-prepare. Guardas:
+//   - Campaña debe existir en el tenant del user.
+//   - Campaña debe estar en status='draft' (el job re-verifica, pero
+//     acotamos aquí para no encolar jobs que fallarán).
+//   - smoke_size debe estar seteada.
+// Botón visible solo cuando estas condiciones se cumplen (page.tsx).
+export async function prepareSmokeAction(formData: FormData): Promise<void> {
+  const campaignId = formData.get("campaign_id");
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    redirect("/campaigns?error=no_campaign_id");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) redirect("/login");
+
+  const { data: allowed } = await supabase
+    .from("allowed_users")
+    .select("tenant_id")
+    .eq("email", user.email)
+    .maybeSingle();
+  if (!allowed) redirect("/login?error=access_denied");
+
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("id, status, smoke_size")
+    .eq("tenant_id", allowed.tenant_id)
+    .eq("id", campaignId as string)
+    .maybeSingle();
+  if (!campaign) redirect("/campaigns?error=campaign_not_found");
+  if (campaign.status !== "draft") {
+    redirect(
+      `/campaigns?error=smoke_not_draft&campaign_id=${encodeURIComponent(campaignId as string)}`,
+    );
+  }
+  if (!campaign.smoke_size || campaign.smoke_size <= 0) {
+    redirect(
+      `/campaigns?error=smoke_size_missing&campaign_id=${encodeURIComponent(campaignId as string)}`,
+    );
+  }
+
+  await inngest.send({
+    name: "volt/smoke.prepare.requested",
+    data: {
+      tenantId: allowed.tenant_id,
+      campaignId: campaignId as string,
+      requestedBy: user.email,
+    },
+  });
+
+  revalidatePath("/campaigns");
+  redirect(
+    `/campaigns?volt_smoke_started=${encodeURIComponent(campaignId as string)}`,
   );
 }

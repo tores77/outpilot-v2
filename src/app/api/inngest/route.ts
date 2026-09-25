@@ -11,6 +11,7 @@ import { novaVibeFetch } from "@/jobs/nova-vibe-fetch";
 import { novaScore } from "@/jobs/nova-score";
 import { lexPersonalize } from "@/jobs/lex-personalize";
 import { voltCreateCampaign } from "@/jobs/volt-create-campaign";
+import { voltSmokePrepare } from "@/jobs/volt-smoke-prepare";
 import { voltSyncLeads } from "@/jobs/volt-sync-leads";
 
 export const { GET, POST, PUT } = serve({
@@ -21,6 +22,7 @@ export const { GET, POST, PUT } = serve({
     novaScore,
     lexPersonalize,
     voltCreateCampaign,
+    voltSmokePrepare,
     voltSyncLeads,
   ],
 });
