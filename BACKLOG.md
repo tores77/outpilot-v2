@@ -179,20 +179,23 @@ en el pipeline de touchpoints (T025) o en Sage (T035):
 No implementar en T024. T024 hace el smoke; T025 procesa los
 webhooks y decide qué guardarraíles necesitamos con evidencia real.
 
-### Import de `outreach_exclusions` — script pendiente
+### Import de `outreach_exclusions` — ESCRITO (T024, pendiente EXECUTE)
 
-La tabla `outreach_exclusions` (migración 004c) está vacía. Pere pasa
-los CSV de:
+`scripts/import-outreach-exclusions.mjs` lee de la API de Lemlist las
+7 campañas históricas (list hardcoded) + unsubscribes globales, y
+upserta a `outreach_exclusions` con `ON CONFLICT DO NOTHING`. Dry-run
+por defecto; `EXECUTE=1` para escribir.
 
-- Emails ya contactados en campañas Lemlist previas (export desde
-  Lemlist UI o API).
-- Unsubscribes globales (export desde Lemlist UI).
+Sondeo (2026-09-25) sobre datos reales:
+- 27 unsubscribes globales.
+- 703 leads en 4 de 7 campañas (3 están vacías).
+- Total 642 filas nuevas tras dedupe por email.
 
-Script `scripts/import-outreach-exclusions.mjs` a escribir cuando
-lleguen los CSV. Formato esperado: CSV con columna `email` y
-opcionalmente `source`/`notes`. Insert con `ON CONFLICT DO NOTHING`
-sobre el PK `(tenant_id, lower(email))`. Log de duplicados
-descartados.
+Pendiente:
+- Aplicar migración 004c en la BD.
+- Ejecutar con `EXECUTE=1` una vez validado que 004c está aplicada.
+- Nunca vuelca emails por consola — solo conteos y 3 dominios de
+  muestra por bucket.
 
 ### Cleanup pre-smoke T024 — RESUELTO (decisión sesión 2026-09-25)
 
