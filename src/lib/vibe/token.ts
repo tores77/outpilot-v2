@@ -14,9 +14,8 @@ import type { VibeUiFilters } from "./types";
 
 function canonicalise(params: VibeUiFilters): string {
   return JSON.stringify({
+    icpSlug: params.icpSlug,
     countries: [...params.countries].sort(),
-    sectors: [...params.sectors].sort(),
-    seniority: params.seniority,
     limit: params.limit,
   });
 }

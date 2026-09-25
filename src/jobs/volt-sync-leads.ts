@@ -66,9 +66,14 @@ type PendingLead = {
 };
 
 type SyncOutcome =
-  | { kind: "sent"; providerLeadId: string | undefined; providerContactId: string | undefined }
-  | { kind: "lost_race" }
-  | { kind: "error"; error: string };
+  | {
+      kind: "sent";
+      providerLeadId: string | undefined;
+      providerContactId: string | undefined;
+      companyDisplayRejected: boolean;
+    }
+  | { kind: "lost_race"; companyDisplayRejected: boolean }
+  | { kind: "error"; error: string; companyDisplayRejected: boolean };
 
 function getLemlistClient() {
   const apiKey = process.env.LEMLIST_API_KEY;
@@ -183,6 +188,7 @@ export const voltSyncLeads = inngest.createFunction(
     let sent = 0;
     let errors = 0;
     let lostRaces = 0;
+    let companyDisplayRejected = 0;
     const failedIds: string[] = [];
 
     for (const { campaign_lead_id, lead, personalization } of pending) {
@@ -193,7 +199,7 @@ export const voltSyncLeads = inngest.createFunction(
         `sync-lead-${campaign_lead_id}`,
         async () => {
           try {
-            const personalizationMap = buildAddLeadPersonalization({
+            const built = buildAddLeadPersonalization({
               personalization,
               openerFallback,
               lead: {
@@ -202,11 +208,12 @@ export const voltSyncLeads = inngest.createFunction(
                 company: lead.company,
               },
             });
+            const cdr = built.meta.companyDisplayRejected;
 
             const result = await provider.addLead({
               campaignExternalId: externalId,
               leadEmail: lead.email,
-              personalization: personalizationMap,
+              personalization: built.map,
             });
 
             // Persist provider_lead_id + provider_contact_id con guard
@@ -226,25 +233,34 @@ export const voltSyncLeads = inngest.createFunction(
               return {
                 kind: "error",
                 error: `persist failed: ${error.message}`,
+                companyDisplayRejected: cdr,
               };
             }
             if ((data ?? []).length === 0) {
               // Otro run lo actualizó entre el addLead y el UPDATE.
               // Lemlist ya tiene el lead (o iba a; addLead es idempotente
               // del lado del provider). Sin daño.
-              return { kind: "lost_race" };
+              return { kind: "lost_race", companyDisplayRejected: cdr };
             }
             return {
               kind: "sent",
               providerLeadId: result.providerLeadId,
               providerContactId: result.providerContactId,
+              companyDisplayRejected: cdr,
             };
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            return { kind: "error", error: msg };
+            // No podemos decir si el guard disparó (build lanzó antes
+            // de tiempo o err fuera del build). Contamos 0 defensivo.
+            return {
+              kind: "error",
+              error: msg,
+              companyDisplayRejected: false,
+            };
           }
         },
       )) as SyncOutcome;
+      if (outcome.companyDisplayRejected) companyDisplayRejected += 1;
       if (outcome.kind === "sent") sent += 1;
       else if (outcome.kind === "lost_race") lostRaces += 1;
       else {
@@ -269,6 +285,11 @@ export const voltSyncLeads = inngest.createFunction(
           sent,
           errors,
           lost_races: lostRaces,
+          // T024: cuántas veces disparó el guard shareAnyCompanyWord
+          // durante este run (Lex propuso company_display que no
+          // compartía palabra con lead.company). Sin log por lead —
+          // solo contador agregado.
+          company_display_rejected: companyDisplayRejected,
           failed_campaign_lead_ids: failedIds,
           latency_ms: latencyMs,
         },
@@ -281,6 +302,7 @@ export const voltSyncLeads = inngest.createFunction(
       sent,
       errors,
       lost_races: lostRaces,
+      company_display_rejected: companyDisplayRejected,
       failed_ids: failedIds,
       latency_ms: latencyMs,
     };

@@ -156,7 +156,7 @@ describe("buildAddLeadPersonalization", () => {
       personalization: "personalized",
       opener: "Vi que en Product Hackers diseñáis sistemas de crecimiento.",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: LEAD_JOSE,
@@ -175,7 +175,7 @@ describe("buildAddLeadPersonalization", () => {
       opener: "",
       reason_if_generic: "no signal",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: LEAD_ANA,
@@ -195,7 +195,7 @@ describe("buildAddLeadPersonalization", () => {
       opener: "Vi que Metales del Sur fabrica válvulas.",
       company_display: "Metales del Sur",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: {
@@ -214,7 +214,7 @@ describe("buildAddLeadPersonalization", () => {
       personalization: "personalized",
       opener: "algo",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: {
@@ -232,7 +232,7 @@ describe("buildAddLeadPersonalization", () => {
       opener: "algo",
       company_display: "   ",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: {
@@ -252,7 +252,7 @@ describe("buildAddLeadPersonalization", () => {
       opener: "algo",
       company_display: "Acme Studio",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: {
@@ -272,7 +272,7 @@ describe("buildAddLeadPersonalization", () => {
       opener: "algo",
       company_display: "Metales del Sur",
     };
-    const map = buildAddLeadPersonalization({
+    const { map } = buildAddLeadPersonalization({
       personalization: p,
       openerFallback: OPENER_FALLBACK,
       lead: {
@@ -282,6 +282,70 @@ describe("buildAddLeadPersonalization", () => {
       },
     });
     expect(map.companyName).toBe("Metales del Sur");
+  });
+
+  it("T024 meta.companyDisplayRejected: true cuando el guard descarta el display", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "x",
+      company_display: "Acme Studio",
+    };
+    const { meta } = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "Pepe",
+        last_name: "López",
+        company: "METALES DEL SUR S.L.",
+      },
+    });
+    expect(meta.companyDisplayRejected).toBe(true);
+  });
+
+  it("T024 meta.companyDisplayRejected: false cuando el display encaja", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "x",
+      company_display: "Metales del Sur",
+    };
+    const { meta } = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "Pepe",
+        last_name: "López",
+        company: "METALES DEL SUR S.L.",
+      },
+    });
+    expect(meta.companyDisplayRejected).toBe(false);
+  });
+
+  it("T024 meta.companyDisplayRejected: false cuando NO hay company_display en el payload (nada que rechazar)", () => {
+    const p = { personalization: "personalized", opener: "x" };
+    const { meta } = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: LEAD_JOSE,
+    });
+    expect(meta.companyDisplayRejected).toBe(false);
+  });
+
+  it("T024 meta.companyDisplayRejected: false cuando el lead no tiene company (no hay contra qué comparar)", () => {
+    const p = {
+      personalization: "personalized",
+      opener: "x",
+      company_display: "Cualquier Cosa",
+    };
+    const { meta } = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "X",
+        last_name: "Y",
+        company: null,
+      },
+    });
+    expect(meta.companyDisplayRejected).toBe(false);
   });
 });
 

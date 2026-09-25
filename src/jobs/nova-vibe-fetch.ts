@@ -48,7 +48,6 @@ import {
   type LeadDraft,
 } from "@/lib/nova/cleanup";
 import {
-  VIBE_COMPANY_SIZE_VALUES,
   VIBE_CREDITS_PER_LEAD_ENRICH,
   VIBE_CREDITS_PER_LEAD_FETCH,
   VIBE_ENRICH_BATCH_SIZE,
@@ -56,23 +55,28 @@ import {
   VIBE_INTER_PAGE_DELAY_MS,
   VIBE_MAX_LEADS_PER_FETCH,
   VIBE_PAGE_SIZE,
+  VIBE_SMOKE_MAX_TITLE_RANK,
   estimateCredits,
-  jobLevelsFor,
-  linkedinCategoriesFor,
-  maxRankFor,
 } from "@/config/vibe";
+import type { VibeApiFilters } from "@/lib/vibe/types";
 import type { Database } from "@/lib/supabase/database.types";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 
+// T024: el evento lleva icpSlug + países (editables en /radar/vibe) +
+// limit + apiFilters ya resueltos (los que la server action envió al
+// endpoint de stats y son los que enviaremos al fetch real, para que
+// matches y fetch coincidan). El job NO vuelve a resolver desde el
+// ICP para evitar drift si Pere cambia icps.ts entre el estimate y
+// el execute del mismo run.
 type EventData = {
   tenantId?: unknown;
   requestedBy?: unknown;
   filters?: {
+    icpSlug?: unknown;
     countries?: unknown;
-    sectors?: unknown;
-    seniority?: unknown;
     limit?: unknown;
+    apiFilters?: unknown;
   };
   estimatedCredits?: unknown;
 };
@@ -80,30 +84,30 @@ type EventData = {
 function parseEventData(raw: unknown): {
   tenantId: string;
   requestedBy: string;
+  icpSlug: string;
   countries: string[];
-  sectors: string[];
-  seniority: string;
   limit: number;
+  apiFilters: VibeApiFilters;
 } {
   const data = (raw ?? {}) as EventData;
   const tenantId = typeof data.tenantId === "string" ? data.tenantId : "";
   const requestedBy =
     typeof data.requestedBy === "string" ? data.requestedBy : "";
   const filters = data.filters ?? {};
+  const icpSlug = typeof filters.icpSlug === "string" ? filters.icpSlug : "";
   const countries = Array.isArray(filters.countries)
     ? filters.countries.filter((v): v is string => typeof v === "string")
     : [];
-  const sectors = Array.isArray(filters.sectors)
-    ? filters.sectors.filter((v): v is string => typeof v === "string")
-    : [];
-  const seniority =
-    typeof filters.seniority === "string" ? filters.seniority : "director";
   const limitRaw = typeof filters.limit === "number" ? filters.limit : 0;
   const limit = Math.min(
     Math.max(Math.floor(limitRaw), 1),
     VIBE_MAX_LEADS_PER_FETCH,
   );
-  return { tenantId, requestedBy, countries, sectors, seniority, limit };
+  // apiFilters ya viene resuelto por la server action. Se pasa opaco
+  // al cliente Vibe. Si viene malformado el fetch fallará con 4xx.
+  const apiFilters =
+    (filters.apiFilters as VibeApiFilters | undefined) ?? {};
+  return { tenantId, requestedBy, icpSlug, countries, limit, apiFilters };
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -120,23 +124,18 @@ export const novaVibeFetch = inngest.createFunction(
   async ({ event, step }) => {
     const startedAt = Date.now();
     const params = parseEventData(event.data);
-    if (!params.tenantId || params.countries.length === 0) {
-      throw new Error("nova-vibe-fetch: invalid event data");
+    if (!params.tenantId || params.icpSlug === "") {
+      throw new Error("nova-vibe-fetch: invalid event data (tenantId/icpSlug)");
+    }
+    if (!params.apiFilters || Object.keys(params.apiFilters).length === 0) {
+      throw new Error("nova-vibe-fetch: apiFilters vacío (ICP sin vibeFilters?)");
     }
 
     const supabase = createSupabaseServiceClient();
 
-    // Server-side filter set (all validated in probe rounds 2 & 3).
-    const jobLevels = jobLevelsFor(params.seniority);
-    const linkedinCategories = linkedinCategoriesFor(params.sectors);
-    const serverFilters = {
-      country_code: { values: params.countries },
-      job_level: { values: jobLevels },
-      company_size: { values: [...VIBE_COMPANY_SIZE_VALUES] },
-      ...(linkedinCategories.length > 0
-        ? { linkedin_category: { values: linkedinCategories } }
-        : {}),
-    };
+    // Filtro API resuelto por la server action; se envía tal cual a
+    // stats (ya lo hizo) y a fetchProspectsPage (aquí).
+    const serverFilters = params.apiFilters;
 
     // ===== 1. FETCH pages =====
     const totalPages = Math.ceil(params.limit / VIBE_PAGE_SIZE);
@@ -181,7 +180,12 @@ export const novaVibeFetch = inngest.createFunction(
     const cleanup = cleanupLeadBatch(drafts);
 
     // ===== 3. SENIORITY belt-and-braces =====
-    const maxRank = maxRankFor(params.seniority);
+    //
+    // Vibe ya recibió job_level en el filtro, pero defensivo: cualquier
+    // fila con titleRank > VIBE_SMOKE_MAX_TITLE_RANK cae. Umbral fijo
+    // (director-and-above); si un ICP futuro necesita otro, se convierte
+    // en campo del bloque vibeFilters (o del propio ICP).
+    const maxRank = VIBE_SMOKE_MAX_TITLE_RANK;
     const afterSeniority = cleanup.clean.filter(
       (r) => titleRank(r.title) <= maxRank,
     );
@@ -331,13 +335,10 @@ export const novaVibeFetch = inngest.createFunction(
         entity_type: "lead",
         payload: {
           filters: {
+            icpSlug: params.icpSlug,
             countries: params.countries,
-            sectors: params.sectors,
-            seniority: params.seniority,
             limit: params.limit,
-            job_levels_sent: jobLevels,
-            linkedin_categories_sent: linkedinCategories,
-            company_size_sent: [...VIBE_COMPANY_SIZE_VALUES],
+            api_filters_sent: serverFilters,
           },
           fetched_from_api: fetchedFromApi,
           drafts_after_mapping: drafts.length,

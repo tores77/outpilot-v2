@@ -62,6 +62,9 @@ export const VIBE_INTER_PAGE_DELAY_MS = 500;
 
 export const VIBE_ESTIMATE_TOKEN_TTL_MS = 5 * 60 * 1000;
 
+// Países que Pere puede seleccionar como override en /radar/vibe. El
+// ICP declara sus defaults en vibeFilters.company_country_code /
+// prospect_country_code; la UI permite cambiarlos aquí.
 export const VIBE_AVAILABLE_COUNTRIES = [
   { code: "ES", label: "España" },
   { code: "PT", label: "Portugal" },
@@ -73,97 +76,12 @@ export const VIBE_AVAILABLE_COUNTRIES = [
   { code: "UY", label: "Uruguay" },
 ] as const;
 
-export const VIBE_DEFAULT_COUNTRIES: readonly string[] = ["ES"];
-
-export const VIBE_AVAILABLE_SECTORS = [
-  "SaaS",
-  "Digital Agency",
-  "E-commerce",
-  "Producción audiovisual",
-] as const;
-
-export const VIBE_DEFAULT_SECTORS: readonly string[] = [
-  "SaaS",
-  "Digital Agency",
-  "E-commerce",
-];
-
-// UI sector -> LinkedIn category values pushed to the API. Mapping
-// approved after round 3A discovery on ES.
-export const VIBE_SECTOR_TO_LINKEDIN_CATEGORIES: Record<string, string[]> = {
-  SaaS: [
-    "it services and it consulting",
-    "software development",
-    "technology, information and internet",
-  ],
-  "Digital Agency": [
-    "marketing services",
-    "advertising services",
-    "public relations and communications services",
-  ],
-  "E-commerce": ["retail", "consumer goods"],
-  "Producción audiovisual": [
-    "media production",
-    "movies, videos, and sound",
-    "entertainment providers",
-  ],
-};
-
-// Seniority option -> job_level values pushed to the API + max titleRank
-// kept post-fetch (belt-and-braces if the API returns edge cases).
-export const VIBE_SENIORITY_OPTIONS = [
-  {
-    value: "director",
-    label: "Director+ (default)",
-    maxRank: 4,
-    jobLevels: ["owner", "c-suite", "vice president", "director", "partner"],
-  },
-  {
-    value: "vp",
-    label: "VP+",
-    maxRank: 3,
-    jobLevels: ["owner", "c-suite", "vice president", "partner"],
-  },
-  {
-    value: "csuite",
-    label: "C-suite+",
-    maxRank: 2,
-    jobLevels: ["owner", "c-suite", "partner"],
-  },
-] as const;
-
-export type VibeSeniority = (typeof VIBE_SENIORITY_OPTIONS)[number]["value"];
-export const VIBE_DEFAULT_SENIORITY: VibeSeniority = "director";
-
-// Company size is hardcoded to the mid-market range in v2.1. When
-// Nova needs finer control, promote to a UI selector.
-export const VIBE_COMPANY_SIZE_VALUES: readonly string[] = [
-  "11-50",
-  "51-200",
-  "201-500",
-];
-
-export function maxRankFor(seniority: string): number {
-  return (
-    VIBE_SENIORITY_OPTIONS.find((o) => o.value === seniority)?.maxRank ?? 4
-  );
-}
-
-export function jobLevelsFor(seniority: string): string[] {
-  return (
-    VIBE_SENIORITY_OPTIONS.find((o) => o.value === seniority)?.jobLevels?.slice() ??
-    ["owner", "c-suite", "vice president", "director", "partner"]
-  );
-}
-
-export function linkedinCategoriesFor(sectors: string[]): string[] {
-  const set = new Set<string>();
-  for (const s of sectors) {
-    const mapped = VIBE_SECTOR_TO_LINKEDIN_CATEGORIES[s];
-    if (mapped) for (const c of mapped) set.add(c);
-  }
-  return [...set];
-}
+// Belt-and-braces post-fetch: cualquier fila cuyo titleRank supere
+// este umbral cae, aunque Vibe la haya devuelto tras filtrar por
+// job_level. Alineado con la política actual (director-and-above).
+// Si un ICP futuro necesita subir el listón (p.ej. c-suite only),
+// se promueve a campo del bloque vibeFilters.
+export const VIBE_SMOKE_MAX_TITLE_RANK = 4;
 
 export function estimateCredits(limit: number): {
   fetch: number;

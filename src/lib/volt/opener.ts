@@ -152,6 +152,17 @@ export function shareAnyCompanyWord(a: string, b: string): boolean {
   return false;
 }
 
+export type AddLeadPersonalizationResult = {
+  map: Record<string, string>;
+  meta: {
+    // true si Lex proponía un company_display pero el guard
+    // shareAnyCompanyWord lo descartó (no compartía ninguna palabra
+    // significativa con lead.company). Volt-sync-leads lo cuenta como
+    // company_display_rejected en el evento del run.
+    companyDisplayRejected: boolean;
+  };
+};
+
 /**
  * Compone la personalization map completa que Volt envía a Lemlist
  * en addLead. Lemlist expande {{firstName}}, {{lastName}},
@@ -167,12 +178,16 @@ export function shareAnyCompanyWord(a: string, b: string): boolean {
  * si la web de la empresa lo capitaliza así. Fallback a lead.company
  * si Lex devolvió null (v1 sin campo, o no encontró capitalización)
  * O si el guard shareAnyCompanyWord detecta un scrape errado.
+ *
+ * Devuelve también meta.companyDisplayRejected para que el caller
+ * (volt-sync-leads) pueda contar cuántas veces disparó el guard sin
+ * loguear por-lead (sin PII).
  */
 export function buildAddLeadPersonalization(args: {
   personalization: unknown;
   openerFallback: string;
   lead: LeadForOpener;
-}): Record<string, string> {
+}): AddLeadPersonalizationResult {
   const { lead, personalization } = args;
   const opener = resolveOpener(args);
   const p = (personalization ?? {}) as { company_display?: unknown };
@@ -185,14 +200,22 @@ export function buildAddLeadPersonalization(args: {
   // significativa con lead.company, descartamos el display (probable
   // scrape de web equivocada). Si el lead no tiene company o el
   // display no supera el guard → usamos lead.company literal.
-  const companyDisplay =
-    rawDisplay && leadCompany && shareAnyCompanyWord(rawDisplay, leadCompany)
-      ? rawDisplay
-      : null;
+  let companyDisplayRejected = false;
+  let companyDisplay: string | null = null;
+  if (rawDisplay && leadCompany) {
+    if (shareAnyCompanyWord(rawDisplay, leadCompany)) {
+      companyDisplay = rawDisplay;
+    } else {
+      companyDisplayRejected = true;
+    }
+  }
   return {
-    firstName: lead.first_name ?? "",
-    lastName: lead.last_name ?? "",
-    companyName: companyDisplay ?? leadCompany,
-    opener,
+    map: {
+      firstName: lead.first_name ?? "",
+      lastName: lead.last_name ?? "",
+      companyName: companyDisplay ?? leadCompany,
+      opener,
+    },
+    meta: { companyDisplayRejected },
   };
 }

@@ -7,15 +7,34 @@ export type VibeResponseContext = {
   time_took_in_seconds: number;
 };
 
+// ===== filter shape (T024 · verified with autocomplete +
+//                    fetch-entities-statistics) =====
+//
+// Vibe expone claves separadas para país de la empresa y país del
+// prospect (útil cuando queremos empresas ES pero prospects
+// residentes ES). También expone has_contact_details como filtro
+// dedicado ({ value: "email" }) para que el fetch solo devuelva
+// leads con email (evita gastar créditos en filas hasheadas).
+//
+// linkedin_category es la taxonomía LinkedIn en cadenas literales
+// (verificadas por autocomplete); NO se "arreglan" ni se normalizan.
+export type VibeApiFilters = {
+  company_country_code?: { values: string[] };
+  prospect_country_code?: { values: string[] };
+  // Legacy: pre-T024 el fetch usaba country_code genérico. Se mantiene
+  // el tipo por si un ICP futuro lo prefiere, pero las plantillas
+  // actuales usan las variantes company/prospect por separado.
+  country_code?: { values: string[] };
+  linkedin_category?: { values: string[] };
+  company_size?: { values: string[] };
+  job_level?: { values: string[] };
+  has_contact_details?: { value: string };
+};
+
 // ===== stats =====
 
 export type VibeStatsRequest = {
-  filters: {
-    country_code: { values: string[] };
-    job_level?: { values: string[] };
-    company_size?: { values: string[] };
-    linkedin_category?: { values: string[] };
-  };
+  filters: VibeApiFilters;
 };
 
 export type VibeStatsResponse = {
@@ -35,12 +54,7 @@ export type VibeStatsResponse = {
 
 export type VibeFetchRequest = {
   mode: "full";
-  filters: {
-    country_code: { values: string[] };
-    job_level?: { values: string[] };
-    company_size?: { values: string[] };
-    linkedin_category?: { values: string[] };
-  };
+  filters: VibeApiFilters;
   page: number;
   page_size: number;
 };
@@ -106,10 +120,14 @@ export type VibeBulkEnrichResponse = {
 };
 
 // ===== UI-level filters (form) =====
+//
+// T024: la UI se reduce a elegir un ICP (que trae los filtros duros
+// de linkedin_category, company_size, job_level, has_contact_details)
+// + países (editables) + límite. El resto del filtro se resuelve del
+// bloque vibeFilters del ICP en resolveVibeApiFilters.
 
 export type VibeUiFilters = {
+  icpSlug: string;
   countries: string[];
-  sectors: string[];
-  seniority: string;
   limit: number;
 };

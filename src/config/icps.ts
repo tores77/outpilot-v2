@@ -17,6 +17,7 @@
 // inline (cambian por iteracion editorial, no por rebrand).
 
 import { BRAND } from "./brand";
+import type { VibeApiFilters } from "@/lib/vibe/types";
 
 // Variables permitidas en subject/bodyHtml/openerFallback.
 //
@@ -83,6 +84,13 @@ export type IcpTemplate = {
   // `{{legalFooter}}` presente al final del bodyHtml de cada step.
   // Obligatorio para channel "email_cold" (validado por sequenceSchema).
   legalFooter?: string;
+  // T024: filtros que Nova envía a la API de Vibe para poblar el
+  // pool de este ICP. Estructura literal (nombres + values verificados
+  // con autocomplete + fetch-entities-statistics — NO se "arreglan"
+  // los strings). Los países se pueden sobreescribir en /radar/vibe;
+  // el resto es solo-lectura. Opcional para ICPs que no cargan desde
+  // Vibe (no aplica en v2.1).
+  vibeFilters?: VibeApiFilters;
   steps: readonly IcpStep[];
 };
 
@@ -132,6 +140,40 @@ const industrialPremiumEs_step3 = `
 // por GET /sequences tras añadirlo en la UI de Lemlist.
 const industrialPremiumEs_legalFooter = `<p style="font-size:12px;color:#6B6B6B">Te escribo a tu dirección profesional por interés legítimo, porque creo que esto puede ser relevante para {{companyName}}. Si prefieres no recibir más mensajes, puedes <a href="{{unsubscribeUrl}}">darte de baja aquí</a>. Umanialabs SL · Quarta Volta 4027, 07200 Felanitx, Mallorca.</p>`;
 
+// T024: filtros Vibe verificados por Pere el 2026-09-25 con
+// autocomplete + fetch-entities-statistics (gratis): 1.785 prospects
+// con email disponibles con este set. NO se normalizan los valores de
+// linkedin_category — son literales de la taxonomía LinkedIn.
+const industrialPremiumEs_vibeFilters: VibeApiFilters = {
+  company_country_code: { values: ["ES"] },
+  prospect_country_code: { values: ["ES"] },
+  linkedin_category: {
+    values: [
+      "machinery manufacturing",
+      "industrial machinery manufacturing",
+      "furniture and home furnishings manufacturing",
+      "household and institutional furniture manufacturing",
+      "office furniture and fixtures manufacturing",
+      "apparel manufacturing",
+      "sporting goods manufacturing",
+      "construction hardware manufacturing",
+      "building materials",
+    ],
+  },
+  company_size: { values: ["11-50", "51-200", "201-500"] },
+  job_level: {
+    values: [
+      "c-suite",
+      "owner",
+      "founder",
+      "president",
+      "director",
+      "partner",
+    ],
+  },
+  has_contact_details: { value: "email" },
+};
+
 const industrialPremiumEs: IcpTemplate = {
   slug: "industrial_premium_es",
   name: "Industrial Premium ES",
@@ -140,6 +182,7 @@ const industrialPremiumEs: IcpTemplate = {
   channel: "email_cold",
   openerFallback: industrialPremiumEs_openerFallback,
   legalFooter: industrialPremiumEs_legalFooter,
+  vibeFilters: industrialPremiumEs_vibeFilters,
   steps: [
     {
       index: 1,
