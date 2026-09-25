@@ -372,6 +372,44 @@ export type Database = {
           },
         ]
       }
+      outreach_exclusions: {
+        Row: {
+          created_at: string
+          email: string
+          imported_at: string
+          notes: string | null
+          reason: string
+          source: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          imported_at?: string
+          notes?: string | null
+          reason: string
+          source?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          imported_at?: string
+          notes?: string | null
+          reason?: string
+          source?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_exclusions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           created_at: string
