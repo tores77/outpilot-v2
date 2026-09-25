@@ -119,39 +119,24 @@ export async function selectSmokeCandidates(
     (activeCLs ?? []).map((row) => row.lead_id),
   );
 
-  // 3. Fetch emails en outreach_exclusions (lowercase).
+  // 3. Fetch emails en outreach_exclusions.
   //
-  // NOTA: cast temporal hasta que Pere aplique 004c y regenere
-  // database.types.ts. La forma del row (`{ email: string }`) coincide
-  // con el schema de la migración (tenant_id + lower(email) PK).
-  type ExclusionRow = { email: string };
-  const supabaseUntyped = supabase as unknown as {
-    from: (table: string) => {
-      select: (cols: string) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{
-          data: ExclusionRow[] | null;
-          error: { message: string } | null;
-        }>;
-      };
-    };
-  };
-  const { data: exclusions, error: exclErr } = await supabaseUntyped
+  // La tabla enforce CHECK (email = lower(email)) — todo lo escrito
+  // ya viene en lowercase, así que aquí no volvemos a lowercasear al
+  // leer. Sí lo hacemos sobre el lead.email (que puede venir con
+  // mayúsculas de Vibe) al comparar.
+  const { data: exclusions, error: exclErr } = await supabase
     .from("outreach_exclusions")
     .select("email")
     .eq("tenant_id", tenantId);
   if (exclErr) {
-    // Si la tabla no existe todavía (pre-004c) o el tenant no ha
-    // cargado exclusions, seguimos sin ellas. NO silenciamos errores
-    // de otro tipo.
-    if (!/relation.*outreach_exclusions.*does not exist/i.test(exclErr.message)) {
-      throw new Error(`selectSmokeCandidates exclusions: ${exclErr.message}`);
-    }
+    throw new Error(`selectSmokeCandidates exclusions: ${exclErr.message}`);
   }
+  // Los emails en la tabla ya están en lowercase (CHECK constraint),
+  // así que no volvemos a lowercasear aquí; sí lo hacemos sobre el
+  // lead.email al comparar.
   const excludedEmails = new Set(
-    (exclusions ?? []).map((row) => row.email.toLowerCase()),
+    (exclusions ?? []).map((row) => row.email),
   );
 
   // 4. Aplicar exclusiones.

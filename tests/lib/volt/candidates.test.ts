@@ -254,16 +254,16 @@ describe("selectSmokeCandidates", () => {
     expect(r.candidates.map((c) => c.id)).toEqual(["old", "new"]);
   });
 
-  it("outreach_exclusions no aplicada aún (relation does not exist) → silencia el error y sigue", async () => {
+  it("error de BD al leer outreach_exclusions propaga (ya no se silencia; 004c está aplicada)", async () => {
     const supabase = makeMockSupabase({
       leads: [lead({ id: "ok", email: "ok@example.com", company: "Acme" })],
       activeCampaignLeadIds: [],
       exclusionEmails: [],
       simulateExclusionsMissing: true,
     });
-    const r = await selectSmokeCandidates(supabase, BASE_ARGS);
-    expect(r.candidates).toHaveLength(1);
-    expect(r.counts.excluded_by_outreach_exclusions).toBe(0);
+    await expect(selectSmokeCandidates(supabase, BASE_ARGS)).rejects.toThrow(
+      /selectSmokeCandidates exclusions/,
+    );
   });
 
   it("counts reflejan la cascada de exclusiones", async () => {
