@@ -366,6 +366,54 @@ describe("applyScoreMechanicalGates (T024)", () => {
     expect(r.gated).toContain("sector_unknown");
   });
 
+  it("T024 firmographics_domain_unverified: cap 65 cuando la bandera es 'false'", () => {
+    const noVerified = scoredLead({
+      score: 78,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+    });
+    const r = applyScoreMechanicalGates(
+      noVerified,
+      {
+        title: "CEO",
+        custom_fields: { firmographics_domain_verified: "false" },
+      },
+      { ...opts, firmographicsUnverifiedMaxScore: 65 },
+    );
+    expect(r.score).toBe(65);
+    expect(r.gated).toContain("firmographics_domain_unverified");
+  });
+
+  it("T024 firmographics verified='true' → no dispara el gate", () => {
+    const verified = scoredLead({
+      score: 82,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+    });
+    const r = applyScoreMechanicalGates(
+      verified,
+      {
+        title: "CEO",
+        custom_fields: { firmographics_domain_verified: "true" },
+      },
+      opts,
+    );
+    expect(r.score).toBe(82);
+    expect(r.gated).not.toContain("firmographics_domain_unverified");
+  });
+
+  it("T024 firmographics ausente (sin firmographics) → no dispara el gate", () => {
+    const noFirm = scoredLead({
+      score: 82,
+      reasoning_fields_used: ["sector", "title"],
+    });
+    const r = applyScoreMechanicalGates(
+      noFirm,
+      { title: "CEO", custom_fields: null },
+      opts,
+    );
+    expect(r.score).toBe(82);
+    expect(r.gated).not.toContain("firmographics_domain_unverified");
+  });
+
   it("score ≤ 50 sin sector citado NO se degrada más (el gate solo baja, no marca sin razón)", () => {
     const low = scoredLead({ score: 42, reasoning_fields_used: ["title"] });
     const r = applyScoreMechanicalGates(low, { title: "CEO" }, opts);

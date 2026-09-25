@@ -105,19 +105,82 @@ export function mapProspectToLeadDraft(p: VibeProspect): LeadDraft | null {
 }
 
 /**
- * Merge de un lead con el firmographics de su empresa. Actualiza:
- *   - sector          ← linkedin_industry_category (si el lead no tenía)
- *   - custom_fields.company_description
- *   - custom_fields.company_size (number_of_employees_range)
- *   - custom_fields.company_revenue (yearly_revenue_range)
- *   - custom_fields.naics_description
- * Nunca sobrescribe sector si el lead ya lo tenía (defensivo).
- * Pure — sin side effects.
+ * Extrae el hostname raíz de una URL: sin protocolo, sin path, sin
+ * "www.", lowercase. Devuelve null si la entrada no es una URL
+ * parseable. NO aplica public-suffix — comparación conservadora:
+ * "shop.acme.com" y "acme.com" quedan distintos y disparan mismatch
+ * (poco común y worth-reviewing).
+ */
+export function rootDomain(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string" || url.trim() === "") return null;
+  const raw = url.trim();
+  const hasScheme = /^https?:\/\//i.test(raw);
+  try {
+    const u = new URL(hasScheme ? raw : `https://${raw}`);
+    return u.hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export type FirmographicsMergeResult = {
+  draft: LeadDraft;
+  // Si el enrich devolvió website y NO coincide con lead.website
+  // (Vibe matcheó otro business_id). En ese caso NO se persiste
+  // description/size/revenue/naics/sector-desde-Vibe: es contaminación.
+  mismatch?: { vibe_domain: string; lead_domain: string };
+  // - true:  el enrich trae website y coincide con lead.website (fuerte)
+  // - false: el enrich no trae website (o el lead no lo tiene): merge
+  //          se hace pero el prompt/gate lo tratan como señal débil
+  //          (sector_fit ≤ 60, cap score global 65)
+  // - null:  no hubo intento (draft sin firmographics)
+  domainVerified: boolean | null;
+};
+
+/**
+ * Merge de un lead con el firmographics de su empresa. Guard de
+ * coherencia de dominio (T024, caso Linq real: Vibe matcheó una
+ * empresa distinta con el mismo nombre "Linq" y trajo la descripción
+ * equivocada — inspection systems vs fundas de móvil).
+ *
+ * Casos:
+ *   A) enrich.website presente Y coincide con draft.website
+ *      → merge completo: sector (si el lead no tenía),
+ *        company_description, company_size, company_revenue,
+ *        naics_description. firmographics_domain_verified = true.
+ *   B) enrich.website presente Y NO coincide (mismatch)
+ *      → NO se persiste description/size/revenue/naics/sector-de-Vibe.
+ *        Se marca firmographics_mismatch = {vibe_domain, lead_domain}
+ *        para diagnóstico. domainVerified = false.
+ *        review reason: 'data_mismatch'.
+ *   C) enrich no trae website (o el lead no lo tiene)
+ *      → merge completo pero firmographics_domain_verified = false;
+ *        el prompt lo trata como señal débil (sector_fit ≤ 60).
  */
 export function mergeBusinessFirmographics(
   draft: LeadDraft,
   business: VibeBusinessData,
-): LeadDraft {
+): FirmographicsMergeResult {
+  const leadDomain = rootDomain(draft.website);
+  const vibeDomain = rootDomain(business.website);
+
+  // Caso B: mismatch verificable → NO persistimos firmographics.
+  if (leadDomain && vibeDomain && leadDomain !== vibeDomain) {
+    const custom: Record<string, string> = { ...(draft.custom_fields ?? {}) };
+    custom.firmographics_mismatch = JSON.stringify({
+      vibe_domain: vibeDomain,
+      lead_domain: leadDomain,
+    });
+    custom.firmographics_domain_verified = "false";
+    return {
+      draft: { ...draft, custom_fields: custom },
+      mismatch: { vibe_domain: vibeDomain, lead_domain: leadDomain },
+      domainVerified: false,
+    };
+  }
+
+  // Caso A o C: merge normal. En C (no vibeDomain o no leadDomain),
+  // marcamos domainVerified=false para que el prompt sea conservador.
   const custom: Record<string, string> = { ...(draft.custom_fields ?? {}) };
   const desc = pickString(business.business_description);
   if (desc) custom.company_description = desc;
@@ -131,10 +194,12 @@ export function mergeBusinessFirmographics(
   const sectorFromBusiness = pickString(business.linkedin_industry_category);
   const nextSector = draft.sector ?? sectorFromBusiness;
 
+  const verified = Boolean(leadDomain && vibeDomain && leadDomain === vibeDomain);
+  custom.firmographics_domain_verified = verified ? "true" : "false";
+
   return {
-    ...draft,
-    sector: nextSector,
-    custom_fields: custom,
+    draft: { ...draft, sector: nextSector, custom_fields: custom },
+    domainVerified: verified,
   };
 }
 

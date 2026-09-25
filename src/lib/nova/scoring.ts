@@ -49,6 +49,11 @@ export type LeadPromptEntry = {
   company_size?: string;
   company_revenue?: string;
   naics_description?: string;
+  // Bandera del guard de coherencia de dominio del backfill/mapper.
+  // "true" = enrich verificado (website coincide con lead.website).
+  // "false" = sin verificar (o Vibe no devolvió website comparable).
+  // El prompt trata "false" como señal débil (sector_fit ≤ 60).
+  firmographics_domain_verified?: string;
 };
 
 const CUSTOM_KEYS_TO_SURFACE = [
@@ -57,6 +62,7 @@ const CUSTOM_KEYS_TO_SURFACE = [
   "company_size",
   "company_revenue",
   "naics_description",
+  "firmographics_domain_verified",
 ] as const;
 
 function nonEmpty(value: string | null | undefined): string | undefined {
@@ -160,12 +166,22 @@ export type MechanicalGateOptions = {
   secondaryMaxScore: number;
   primaryDeciders: readonly string[];
   secondaryDeciders: readonly string[];
+  // Cap del score cuando el lead tiene
+  // custom_fields.firmographics_domain_verified === "false". T024:
+  // los firmographics no verificados son señal débil; el prompt les
+  // pide sector_fit ≤ 60 y el gate mecánico corta el global por
+  // arriba (default 65) como red de seguridad.
+  firmographicsUnverifiedMaxScore?: number;
 };
 
 export type MechanicalGateResult = {
   score: number;
   needs_review_reasons: string[];
-  gated: Array<"sector_unknown" | "secondary_decider_cap">;
+  gated: Array<
+    | "sector_unknown"
+    | "secondary_decider_cap"
+    | "firmographics_domain_unverified"
+  >;
 };
 
 /**
@@ -181,12 +197,12 @@ export type MechanicalGateResult = {
  */
 export function applyScoreMechanicalGates(
   raw: ScoredLead,
-  lead: Pick<LeadForScoring, "title">,
+  lead: Pick<LeadForScoring, "title" | "custom_fields">,
   opts: MechanicalGateOptions,
 ): MechanicalGateResult {
   let score = raw.score;
   const reasons: string[] = [];
-  const gated: Array<"sector_unknown" | "secondary_decider_cap"> = [];
+  const gated: MechanicalGateResult["gated"] = [];
 
   // Gate 1: sector_unknown
   const citesSector = raw.reasoning_fields_used
@@ -208,6 +224,21 @@ export function applyScoreMechanicalGates(
     score = opts.secondaryMaxScore;
     reasons.push(`secondary_decider_cap:${opts.secondaryMaxScore}`);
     gated.push("secondary_decider_cap");
+  }
+
+  // Gate 3: firmographics_domain_unverified (T024 guard de dominio)
+  const firmVerified =
+    (lead.custom_fields as Record<string, unknown> | null | undefined)?.[
+      "firmographics_domain_verified"
+    ];
+  const firmUnverified = firmVerified === false || firmVerified === "false";
+  if (firmUnverified) {
+    const cap = opts.firmographicsUnverifiedMaxScore ?? 65;
+    if (score > cap) {
+      score = cap;
+      reasons.push(`firmographics_domain_unverified:${cap}`);
+      gated.push("firmographics_domain_unverified");
+    }
   }
 
   return { score, needs_review_reasons: reasons, gated };

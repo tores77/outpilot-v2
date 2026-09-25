@@ -102,6 +102,23 @@ let updatedLeads = 0;
 let failedBids = 0;
 let sectorFromApi = 0;
 let sectorEmpty = 0;
+let mismatchLeads = 0;
+let verifiedLeads = 0;
+let unverifiedLeads = 0;
+
+// Helper: extrae hostname raíz (sin protocolo, sin www, lowercase).
+// Duplica la lógica de src/lib/vibe/mapper.ts:rootDomain para que el
+// script sea self-contained (no requiere tsx / build).
+function rootDomain(url) {
+  if (!url || typeof url !== "string" || url.trim() === "") return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 for (const [bid, ls] of leadsByBid) {
   try {
     const r = await fetch(
@@ -123,27 +140,53 @@ for (const [bid, ls] of leadsByBid) {
     }
     const j = await r.json();
     const business = j.data ?? {};
-    const sector = business.linkedin_industry_category ?? null;
+    const sectorFromBiz = business.linkedin_industry_category ?? null;
     const description = business.business_description ?? null;
     const size = business.number_of_employees_range ?? null;
     const revenue = business.yearly_revenue_range ?? null;
     const naicsDesc = business.naics_description ?? null;
-    if (sector) sectorFromApi += 1;
+    const vibeDomain = rootDomain(business.website);
+    if (sectorFromBiz) sectorFromApi += 1;
     else sectorEmpty += 1;
 
-    // Update cada lead con este business_id.
+    // Update cada lead con este business_id, aplicando el guard de
+    // coherencia de dominio (mismo criterio que mergeBusinessFirmographics
+    // en el flujo del job).
     for (const lead of ls) {
+      const leadDomain = rootDomain(lead.website);
+      const isMismatch = leadDomain && vibeDomain && leadDomain !== vibeDomain;
       const newCustom = { ...(lead.custom_fields ?? {}) };
-      if (description) newCustom.company_description = description;
-      if (size) newCustom.company_size = size;
-      if (revenue) newCustom.company_revenue = revenue;
-      if (naicsDesc) newCustom.naics_description = naicsDesc;
+      const updates = { custom_fields: newCustom };
+
+      if (isMismatch) {
+        // NO persistimos firmographics (contaminación). Marcamos
+        // mismatch, verified=false, needs_review + reason data_mismatch.
+        newCustom.firmographics_mismatch = JSON.stringify({
+          vibe_domain: vibeDomain,
+          lead_domain: leadDomain,
+        });
+        newCustom.firmographics_domain_verified = "false";
+        newCustom.review_reason = "data_mismatch";
+        updates.needs_review = true;
+        mismatchLeads += 1;
+      } else {
+        // Merge normal. verified=true si dominios coinciden; false
+        // si el enrich no trajo website o el lead no lo tiene.
+        const verified = Boolean(leadDomain && vibeDomain && leadDomain === vibeDomain);
+        if (description) newCustom.company_description = description;
+        if (size) newCustom.company_size = size;
+        if (revenue) newCustom.company_revenue = revenue;
+        if (naicsDesc) newCustom.naics_description = naicsDesc;
+        newCustom.firmographics_domain_verified = verified ? "true" : "false";
+        // Solo llenamos sector si el lead no lo tiene.
+        if (!lead.sector && sectorFromBiz) updates.sector = sectorFromBiz;
+        if (verified) verifiedLeads += 1;
+        else unverifiedLeads += 1;
+      }
+
       const { error: upErr } = await supabase
         .from("leads")
-        .update({
-          sector,
-          custom_fields: newCustom,
-        })
+        .update(updates)
         .eq("id", lead.id);
       if (upErr) {
         console.error(`  update ${lead.id}: ${upErr.message}`);
@@ -169,6 +212,10 @@ console.log(`  business_ids fallidos: ${failedBids}`);
 console.log(`  con sector devuelto: ${sectorFromApi}`);
 console.log(`  sin sector devuelto: ${sectorEmpty}`);
 console.log(`  leads actualizados: ${updatedLeads}`);
+console.log(`\n[backfill] guard de coherencia de dominio:`);
+console.log(`  leads con firmographics verificado (dominio coincide): ${verifiedLeads}`);
+console.log(`  leads con firmographics NO verificado (sin dominio para comparar): ${unverifiedLeads}`);
+console.log(`  leads MISMATCH (Vibe matcheó otra empresa; needs_review data_mismatch): ${mismatchLeads}`);
 console.log(
-  `  saldo Vibe: ${balBefore.remaining_credits} → ${balAfter.remaining_credits} (delta ${balBefore.remaining_credits - balAfter.remaining_credits})`,
+  `\n  saldo Vibe: ${balBefore.remaining_credits} → ${balAfter.remaining_credits} (delta ${balBefore.remaining_credits - balAfter.remaining_credits})`,
 );

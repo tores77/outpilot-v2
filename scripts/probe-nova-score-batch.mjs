@@ -170,12 +170,21 @@ if (enrichFresh && !dryRun) {
     if (j.data) businessData.set(bid, j.data);
   }
   // Merge in-memory (NO se escribe a BD).
+  let mismatches = 0;
   for (let i = 0; i < leads.length; i++) {
     const bid = bidByLead.get(leads[i].id);
     if (bid && businessData.has(bid)) {
-      leads[i] = mergeBusinessFirmographics(leads[i], businessData.get(bid));
+      const outcome = mergeBusinessFirmographics(leads[i], businessData.get(bid));
+      leads[i] = outcome.draft;
+      if (outcome.mismatch) {
+        mismatches += 1;
+        console.log(
+          `  MISMATCH ${leads[i].company}: vibe=${outcome.mismatch.vibe_domain} vs lead=${outcome.mismatch.lead_domain}`,
+        );
+      }
     }
   }
+  if (mismatches > 0) console.log(`[probe] TOTAL mismatches: ${mismatches}`);
 }
 
 // Construir payload idéntico al del job.

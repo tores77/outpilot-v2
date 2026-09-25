@@ -294,15 +294,25 @@ export const novaScore = inngest.createFunction(
         scoredCount += 1;
 
         // Gates mecánicos T024 (anti-fabricación de sector +
-        // cap de secondary deciders). Producen un score potencialmente
-        // más bajo que el que devolvió Haiku y lista de motivos.
-        const gate = applyScoreMechanicalGates(result, lead, {
-          secondaryMaxScore:
-            activeIcp.scoringCriteria?.secondaryMaxScore ?? 100,
-          primaryDeciders: activeIcp.scoringCriteria?.primaryDeciders ?? [],
-          secondaryDeciders:
-            activeIcp.scoringCriteria?.secondaryDeciders ?? [],
-        });
+        // cap de secondary deciders + firmographics no verificado).
+        // Producen un score potencialmente más bajo que el que
+        // devolvió Haiku y lista de motivos.
+        const gate = applyScoreMechanicalGates(
+          result,
+          {
+            title: lead.title,
+            custom_fields: lead.custom_fields as
+              | Record<string, unknown>
+              | null,
+          },
+          {
+            secondaryMaxScore:
+              activeIcp.scoringCriteria?.secondaryMaxScore ?? 100,
+            primaryDeciders: activeIcp.scoringCriteria?.primaryDeciders ?? [],
+            secondaryDeciders:
+              activeIcp.scoringCriteria?.secondaryDeciders ?? [],
+          },
+        );
         const gatedResult: ScoredLead = { ...result, score: gate.score };
 
         const decision = computeScoreUpdate(lead.estado, gatedResult, {

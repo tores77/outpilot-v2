@@ -317,15 +317,20 @@ export const novaVibeFetch = inngest.createFunction(
         continue;
       }
       // Merge firmographics si tenemos el business (immutable — sin
-      // perder narrowing del email).
+      // perder narrowing del email). Guard de dominio: T024 caso Linq
+      // — si el website del enrich no coincide con el del lead, es
+      // matching erróneo de Vibe → NO persistir firmographics.
       const bid = draft0.custom_fields?.business_id;
-      const draft =
+      const firmMerge =
         typeof bid === "string" && businessByCid.has(bid)
           ? mergeBusinessFirmographics(draft0, businessByCid.get(bid)!)
-          : draft0;
+          : null;
+      const draft = firmMerge ? firmMerge.draft : draft0;
+      const dataMismatch = firmMerge?.mismatch !== undefined;
 
       const isGeneric = isGenericEmail(email);
-      if (isGeneric) markedReview += 1;
+      const needsReview = isGeneric || dataMismatch;
+      if (needsReview) markedReview += 1;
 
       // review_reason en custom_fields (T024): motivo estructurado
       // para poder desglosar por qué se marcó (evita el problema de
@@ -335,6 +340,7 @@ export const novaVibeFetch = inngest.createFunction(
         prospect_id: pid,
       };
       if (isGeneric) customFields.review_reason = "generic_email";
+      else if (dataMismatch) customFields.review_reason = "data_mismatch";
 
       rows.push({
         tenant_id: params.tenantId,
@@ -350,7 +356,7 @@ export const novaVibeFetch = inngest.createFunction(
         country: draft.country ?? null,
         city: draft.city ?? null,
         source: "vibe_prospecting",
-        needs_review: isGeneric,
+        needs_review: needsReview,
         custom_fields: customFields,
       });
     }

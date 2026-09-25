@@ -138,6 +138,17 @@ REGLA ANTI-INVENCIÓN DE EXPORTACIÓN
   eso es alucinación. Ausencia de texto = ausencia de señal, sin
   excepciones.
 
+FIRMOGRAPHICS DÉBIL (T024, guard de dominio del backfill)
+- Si el input trae firmographics_domain_verified = false (o "false"
+  como string), significa que Nova no pudo verificar que la
+  descripción de la empresa (company_description, company_size,
+  company_revenue, naics_description) pertenezca realmente al lead —
+  Vibe no devolvió website coincidente. Trata esos datos como señal
+  DÉBIL: sector_fit ≤ 60. El score global lo capa el sistema a 65
+  cuando esta bandera es false y sector_fit > 60.
+- Si firmographics_domain_verified = true, los datos vienen
+  verificados; sector_fit puede alcanzar 100 según encaje.
+
 ICP OBJETIVO (inyectado desde icps.ts · scoringCriteria)
 
 Encaja el ICP si:
