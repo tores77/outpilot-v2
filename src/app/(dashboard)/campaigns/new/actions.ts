@@ -10,6 +10,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getIcpBySlug } from "@/config/icps";
+import { VOLT_SMOKE_MAX_SIZE, VOLT_SMOKE_MIN_SIZE } from "@/config/volt";
 import { sequenceSchema, type Sequence } from "@/lib/campaigns/sequence";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -39,6 +40,17 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
   const template = getIcpBySlug(templateSlug);
   if (!template) {
     redirect("/campaigns/new?error=unknown_icp");
+  }
+
+  const smokeSize = fieldInt(formData, "smokeSize");
+  if (
+    !Number.isFinite(smokeSize) ||
+    smokeSize < VOLT_SMOKE_MIN_SIZE ||
+    smokeSize > VOLT_SMOKE_MAX_SIZE
+  ) {
+    redirect(
+      `/campaigns/new?icp=${encodeURIComponent(templateSlug)}&error=invalid_smoke_size`,
+    );
   }
 
   // Reconstruir sequence desde los inputs. Cada step del template
@@ -125,6 +137,7 @@ export async function createCampaignAction(formData: FormData): Promise<void> {
     provider: "lemlist",
     icp_slug: template.slug,
     sequence: parsed.data,
+    smoke_size: smokeSize,
   };
 
   const { data: created, error } = await supabase

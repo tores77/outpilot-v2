@@ -32,3 +32,11 @@ export const VOLT_ERROR_CAMPAIGN_UNSAFE = "campaign_status_unsafe_abort";
 // La decisión GO/NO-GO del smoke se toma sobre reply/bounce/quejas,
 // no sobre opens.
 export const VOLT_DISABLE_OPEN_TRACKING = true;
+
+// T024: tope duro del smoke_size que la server action de
+// /campaigns/[id]/prepare-smoke acepta. Guard de coste: 50 es la
+// dirección (Fase 2 R2, spec §7); dejamos 100 de margen para pruebas
+// mayores puntuales. Si algún día hace falta subirlo, se cambia
+// aquí (audit en el commit).
+export const VOLT_SMOKE_MAX_SIZE = 100;
+export const VOLT_SMOKE_MIN_SIZE = 1;

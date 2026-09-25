@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ICPS, getIcpBySlug } from "@/config/icps";
+import { VOLT_SMOKE_MAX_SIZE, VOLT_SMOKE_MIN_SIZE } from "@/config/volt";
 import { createCampaignAction } from "./actions";
 import { SubmitButton } from "./submit-button";
 
@@ -8,6 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   unknown_icp: "El ICP indicado no existe.",
   duplicate_name: "Ya existe una campaña en draft con ese nombre para tu tenant. Cambia el nombre o abre la existente.",
   validation: "La secuencia no valida (mira el detalle).",
+  invalid_smoke_size: `smoke_size fuera de rango [${VOLT_SMOKE_MIN_SIZE}, ${VOLT_SMOKE_MAX_SIZE}]. Guard de coste.`,
   insert: "El insert en la BD falló (mira el detalle).",
 };
 
@@ -116,6 +118,30 @@ function CampaignForm({
           placeholder={`${template.name} — ${new Date().toLocaleDateString("es-ES", { month: "short", year: "numeric" })}`}
           className="mt-2 block w-full rounded-md border border-hairline bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
         />
+      </div>
+
+      <div>
+        <label
+          htmlFor="campaign-smoke-size"
+          className="block text-sm font-medium text-foreground"
+        >
+          Tamaño del smoke test
+        </label>
+        <input
+          id="campaign-smoke-size"
+          type="number"
+          name="smokeSize"
+          required
+          min={VOLT_SMOKE_MIN_SIZE}
+          max={VOLT_SMOKE_MAX_SIZE}
+          defaultValue={50}
+          className="mt-2 block w-32 rounded-md border border-hairline bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+        />
+        <p className="mt-1 text-xs text-muted">
+          Nº de leads que el smoke seleccionará al pulsar «Preparar smoke».
+          Rango permitido: {VOLT_SMOKE_MIN_SIZE}–{VOLT_SMOKE_MAX_SIZE} (guard
+          de coste).
+        </p>
       </div>
 
       <div className="space-y-6">
