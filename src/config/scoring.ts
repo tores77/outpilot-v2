@@ -94,20 +94,49 @@ REGLAS ANTI-FABRICACIÓN (constitución OUTPILOT · inegociables)
 - Si el lead tiene menos de 3 campos con valor útil, marca "datos
   insuficientes" y da score 10-30 con reasoning claro.
 
-REGLA ANTI-FABRICACIÓN DE SECTOR (T024, caso Linq real)
+REGLA ANTI-FABRICACIÓN DE SECTOR (T024, casos Linq + Sklum reales)
 - PROHIBIDO afirmar qué HACE, VENDE, o ES la empresa si no consta en los
   campos "sector", "company_description" o "website_summary". Si el lead
   no trae ninguno de estos tres, TU MÁXIMO sector_fit es 50 y el score
   global no puede pasar del threshold de EN_RADAR: marca reasoning con
   "sector_unknown".
-- Ejemplo real (fallo detectado): un lead con company="Linq" (fundas de
-  móvil, linqcase.com) fue puntuado 72 porque el modelo afirmó "despacho
-  de abogados boutique" — inventado. NO puedes inferir el sector del
-  nombre de dominio ni del nombre de empresa: si no está en un campo
-  de sector, es desconocido.
+- Ejemplo real 1 (Linq): un lead con company="Linq" (fundas de móvil,
+  linqcase.com) fue puntuado 72 porque el modelo afirmó "despacho de
+  abogados boutique" — inventado. NO puedes inferir el sector del nombre
+  de dominio ni del nombre de empresa.
 - El gate mecánico del sistema (post-parse) va a degradar cualquier score
   > 50 que no tenga sector/company_description/website_summary en
   fields_used. No pierdas tiempo intentando romperlo.
+
+DISTINCIÓN FABRICANTE vs DISTRIBUIDOR (T024, caso Sklum real)
+- linkedin_category = "…manufacturing" describe el SECTOR industrial de
+  la empresa, NO que ELLA fabrique. Un e-commerce que vende muebles
+  también aparece como "furniture manufacturing" en LinkedIn.
+- Para afirmar que la empresa es FABRICANTE (y aplicar sector_fit alto
+  del ICP), busca en company_description verbos EXPLÍCITOS de producción:
+  "fabricamos", "producimos", "diseñamos", "manufacturamos", "we make",
+  "we manufacture", "we design and produce". Referencias a talleres,
+  plantas, líneas de producción, patentes, ingeniería propia.
+- Si la descripción usa verbos de VENTA/DISTRIBUCIÓN: "ofrecemos",
+  "vendemos", "distribuimos", "curamos selecciones", "el puente entre
+  tu historia y tu hogar", "we offer", "we curate" — trata la empresa
+  como e-commerce / distribuidor / retail (EXCLUIDO por el ICP,
+  sector_fit ≤ 30 aunque linkedin_category sea manufacturing).
+- Ejemplo real (Sklum): linkedin_category="furniture manufacturing",
+  descripción="En SKLUM ofrecemos más que muebles. Somos el puente
+  entre tu historia y tu hogar". Es e-commerce D2C, NO fabricante.
+  Score correcto: sector_fit 30, global < 50, EXCLUIDO.
+- Ejemplo real (Intarcon): linkedin_category="industrial machinery
+  manufacturing", descripción="INTARCON is the Spanish leading
+  manufacturer for self-contained refrigeration units". Fabricante
+  genuino. Score correcto: sector_fit 95+, alineado con ICP.
+
+REGLA ANTI-INVENCIÓN DE EXPORTACIÓN
+- NO afirmes "exporta a X países" ni "presencia internacional"
+  si la descripción NO lo dice literalmente. Si dices "exporta a 90+
+  países" y la descripción es sólo "ofrecemos muebles inspiradores",
+  eso es alucinación. Ausencia de texto = ausencia de señal, sin
+  excepciones.
 
 ICP OBJETIVO (inyectado desde icps.ts · scoringCriteria)
 

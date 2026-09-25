@@ -45,6 +45,7 @@ Marcar solo lo que aplica. En el reporte del gate, incluir los puntos relevantes
 - [ ] Timeouts, reintentos con backoff en 5xx/429 y fail-fast en otros 4xx.
 - [ ] Los probes se conservan en `scripts/` como registro del contrato.
 - [ ] Exploración inline hacia campos de contenido: truncado desde la primera ejecución, nunca como refinado posterior.
+- [ ] Todo campo que devuelve una API de pago se persiste (columna dedicada o `custom_fields`) aunque no se use hoy. Motivo: si el consumidor lo necesita después, tener que re-llamar a la API para completarlo es un coste doble evitable. Ejemplo T024: el enrich de Vibe trajo `linkedin_category` desde el día 1 y no se guardó porque el scoring aún no lo pedía; cuando Nova lo necesitó, hubo que hacer un segundo enrich (114 créditos) sobre los mismos leads.
 
 ### Dinero y costes
 - [ ] APIs de pago siguen el patrón estimate (gratis) → confirmación con token → execute.

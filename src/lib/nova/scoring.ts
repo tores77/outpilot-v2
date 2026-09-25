@@ -38,12 +38,26 @@ export type LeadPromptEntry = {
   city?: string;
   website?: string;
   linkedin_url?: string;
-  // Selected keys from custom_fields we know can help the model
-  // (e.g. linkedin_category from Vibe). No blanket dump.
+  // Campos de custom_fields que Nova surface al prompt. T024
+  // (post-mortem Sklum): sin company_description Haiku no puede
+  // distinguir un fabricante genuino de un e-commerce D2C con el
+  // mismo linkedin_category ("furniture manufacturing"). Con la
+  // descripción, "somos el puente entre tu historia y tu hogar"
+  // marca a Sklum como B2C excluido.
   linkedin_category?: string;
+  company_description?: string;
+  company_size?: string;
+  company_revenue?: string;
+  naics_description?: string;
 };
 
-const CUSTOM_KEYS_TO_SURFACE = ["linkedin_category"] as const;
+const CUSTOM_KEYS_TO_SURFACE = [
+  "linkedin_category",
+  "company_description",
+  "company_size",
+  "company_revenue",
+  "naics_description",
+] as const;
 
 function nonEmpty(value: string | null | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
