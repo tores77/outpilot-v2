@@ -1,9 +1,9 @@
 # Traspaso Fase 2 → siguiente sesión (parcial)
 
-**De:** sesión Fase 2 (T017–T022) — Volt/Lex en curso, corte del 2026-09-23
-**Para:** próxima sesión de Fase 2 (retomar T023 o cerrar la reprueba de T022 pendiente)
-**Fecha:** 2026-09-23
-**HEAD:** `b520d43` (fix(t022): anti fan-out)
+**De:** sesión Fase 2 (T017–T023) — Volt/Lex cerrados, T024 pendiente
+**Para:** próxima sesión de Fase 2 (contestar decisiones 1-8 del gate T024 + codificar)
+**Fecha:** 2026-09-24
+**HEAD:** `c9ac40f` (docs(t023): cierre)
 **Contrato vivo:** `docs/OUTPILOT_v2_Spec_INTERNA.md` (UL-2026-OUTPILOT-V2-SPEC-R2)
 **Traspaso anterior:** `docs/TRASPASO-FASE1.md`
 
@@ -316,6 +316,15 @@ T023):
 
 **Reprueba real (2026-09-24, cierre de T023):**
 
+IDs de producción para retomar sin ambigüedad:
+- Campaña OUTPILOT (BD): `daca594b-b469-43b3-877b-9d6c9da9a69e`
+- Campaña Lemlist: `cam_Kd5FFwoW4amQGdky8`
+- Leads en Lemlist (los dos sincronizados): `lea_3j25…` y
+  `lea_cPFh…` (persistidos en `campaign_leads.provider_lead_id`
+  de la fila BD correspondiente).
+
+Verificaciones:
+
 - Campaña Lemlist `cam_Kd5FFwoW4amQGdky8` en draft con 2 schedules
   correctos (M-X-J 09-11 / 15-17 Europe/Madrid) y 3 sequence steps
   (step 1 con subject, steps 2 y 3 como reply — visualmente
@@ -410,6 +419,7 @@ psql "$SUPABASE_DB_URL" -f supabase/scripts/t022_smoke_leads.sql
 ### Histórico de commits Fase 2 hasta el corte
 
 ```
+c9ac40f docs(t023): cierre con verificación real + BACKLOG (capitalización y firma)
 54cb046 fix(t023): reply-thread para follow-ups (subject opcional en step 2+)
 9e54f3b docs(backlog): nota T024 pre-smoke cleanup (Jose + Ana no aptos)
 5dabe97 feat(t023): volt sync (crear campaña + sincronizar leads a Lemlist)
@@ -635,11 +645,122 @@ aquí — el R2 sigue siendo el contrato válido.
 
 ---
 
-## 5. Qué queda de Fase 2 (T023–T026)
+## 5. Qué queda de Fase 2 (T024–T026)
 
-Estos NO se han arrancado. Notas anticipadas:
+### T024 — Smoke test (50 leads, evaluación 48h) — GATE §3 PROPUESTO, PENDIENTE DE DECISIONES 1-8
 
-### T023 — Volt: orquestador Inngest
+**Selección de los 50 leads** (job `volt-smoke-populate`):
+
+```sql
+SELECT id FROM leads
+WHERE tenant_id = $1
+  AND estado = 'EN_RADAR'
+  AND icp_score >= NOVA_SCORE_THRESHOLD_EN_RADAR  -- 70 hoy
+  AND needs_review = false
+  AND company IS NOT NULL AND trim(company) <> ''
+  AND email IS NOT NULL AND email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+  AND NOT EXISTS (
+    SELECT 1 FROM campaign_leads cl
+    WHERE cl.tenant_id = leads.tenant_id
+      AND cl.lead_id = leads.id
+      AND cl.removed_at IS NULL
+  )
+ORDER BY icp_score DESC, created_at ASC
+LIMIT $2;  -- smoke_size = 50
+```
+
+`INSERT ... ON CONFLICT DO NOTHING` para idempotencia. Si el pool
+es < 50, sigue con lo que haya y lo reporta.
+
+**Paso previo — retirar Jose y Ana:** script SQL manual
+`t024_pre_smoke_cleanup.sql` (aplica con `-f`) que hace `SET
+removed_at = now()` en las 2 filas de Smoke 50 + Pere borra los
+mismos 2 en Lemlist UI. Gate humano; T024 no lo automatiza.
+
+**Migración 004b:** `ALTER TABLE campaigns ADD COLUMN smoke_size int`.
+Nuevo estado (transición `draft → smoke_test`) escrita por el job
+`volt-smoke-prepare`.
+
+**Job `volt-smoke-prepare`** (5 steps, concurrency 1 por campaignId):
+1. `assert-preconditions` (draft, provider_external_id NOT NULL,
+   no smoke previo, capacidad semanal >= 50).
+2. `select-candidates` (query de arriba).
+3. `insert-campaign-leads` (ON CONFLICT DO NOTHING; devuelve count).
+4. `transition-status` (UPDATE `status='smoke_test', smoke_size=N`;
+   guard `.eq('status','draft')` para idempotencia).
+5. `record-event`.
+
+Después de esto, Pere reusa:
+- Botón "Personalizar 50" (Lex T022, coste ~$0.09, cap $0.20).
+- Botón "Sincronizar 50" (Volt T023).
+
+**Lanzamiento en Lemlist:** MANUAL en Lemlist UI. Volt NO llama
+al endpoint `POST /campaigns/:cid/start` en T024. Razones:
+- Sin webhooks (T025) no tenemos observabilidad autónoma del envío.
+- Pere ya está en la UI para revisar; un click humano más añade
+  gate explícito.
+- Si va mal, pausar desde Lemlist UI es inmediato.
+
+**Doble candado**:
+- Volumen: `computeWeeklyCapacity(mailboxes) >= 50` (144/semana >> 50 hoy).
+- Coste: guard en `personalizeCampaignAction` server action antes
+  de encolar Lex: `pending × ~$0.002 <= SMOKE_MAX_LEX_COST_USD ($0.20)`.
+  50 leads = $0.09, dentro. 500 leads = $0.90, bloqueado.
+
+**Métricas + duración**: 48h desde primer envío real (spec §7 T024).
+Sin T025 (webhooks), script `scripts/volt-smoke-metrics.mjs` lee
+`GET /api/activities?campaignId=X` (ya verificado T018) y calcula
+ratios sent/opened/replied/bounced. Cuando llegue T025, mismas
+cifras salen de `touchpoints`.
+
+**Umbrales GO/NO-GO propuestos** (industry-standard cold outreach;
+Pere afina en decisión 1):
+
+| Métrica | GO | Iterar | NO-GO |
+|---|---|---|---|
+| Bounce rate | < 2% | 2-5% | > 5% |
+| Reply rate | ≥ 5% | 2-4% | < 2% |
+| Open rate | ≥ 40% | 20-40% | < 20% |
+| Interested (Echo T027 cuando esté) | ≥ 30% de replies | — | — |
+
+**Decisiones pendientes de Pere (respuestas en próxima sesión):**
+
+1. Umbrales GO/NO-GO (los de arriba son punto de partida).
+2. `smoke_size` como columna vs `custom_fields`. Recomiendo columna.
+3. Guard de coste en `personalizeCampaignAction` (server action) vs
+   en el job. Recomiendo action (feedback inmediato).
+4. BACKLOG capitalización de company: decidir antes del smoke o
+   iterar en marcha. Recomiendo iterar (2 leads actuales no importan).
+5. BACKLOG firma redundante: decidir ANTES del smoke (50 emails con
+   copy final).
+6. Botones "Promover a activa" / "Volver a draft": incluir o dejar
+   manual (SQL). Recomiendo manual hasta ≥1 smoke real.
+7. Reutilizar "Industrial Premium ES · Smoke 50" (limpia los 2
+   leads antes) o crear "Industrial Premium ES · Smoke 50 ·
+   Octubre 2026" desde cero.
+8. Aplicar migración 004b con `psql -f` (patrón T020/004a).
+
+**Añadidos que Pere pasará en la próxima sesión (no forman parte
+del gate §3 original):**
+
+- **Exclusión de emails ya contactados** en campañas antiguas de
+  Lemlist (histórico pre-OUTPILOT) y unsubscribes globales. Requiere:
+  o bien un import previo (job/script que cachea emails contactados
+  y unsubs en una tabla local), o consulta live a Lemlist en cada
+  select-candidates. Sin esto, riesgo de doble-contacto real.
+- **`company_display` en Lex** — Lex devuelve un campo extra
+  `company_display` extraído del `<title>` o metadata de la web
+  (better capitalization) y Volt lo usa en `personalization.companyName`
+  (fallback a `leads.company` literal si no hay). Cierra el defect
+  del BACKLOG (a).
+
+### T023 — Volt: orquestador Inngest (YA CERRADA — ver §1)
+
+Documentación del job, provider low-level y UI está en la sección
+§1 de este mismo traspaso. Este bloque queda como el "arranque
+anticipado" original; el trabajo real se hizo y verificó.
+
+Notas anticipadas originales:
 
 - Objetivo: dado un `campaign_id`, orquestar el ciclo completo de
   envío usando `LemlistEmailProvider` (T018) + personalización de Lex
@@ -668,18 +789,6 @@ Estos NO se han arrancado. Notas anticipadas:
   fechas con `Europe/Madrid` explícito, Vercel es UTC por defecto.
 - Rate limits Lemlist ya cubiertos en el cliente (Retry-After + backoff).
 
-### T024 — Smoke test nativo (50 leads, 48h evaluación)
-
-- Requiere **gate humano explícito** para el primer POST real de
-  envío (regla operativa Pere).
-- Reusar `campaigns.status = 'smoke_test'` (enum ya existe).
-- Volt (T023) debe respetar `smoke_size` (fuera de scope T020 —
-  añadir vía ALTER TABLE cuando toque, o como campo en `sequence`
-  jsonb).
-- Fixtures reales de replies de Lemlist (Industrial Premium ES) →
-  export para Echo T027. Traspaso F1 aviso: tarea manual de Pere,
-  fecha límite ~finales de agosto (ya vencida; hacer antes de T027).
-
 ### T025 — Webhook Lemlist → touchpoints
 
 - Endpoint `/api/webhooks/lemlist/route.ts` (o similar).
@@ -705,6 +814,31 @@ Estos NO se han arrancado. Notas anticipadas:
   mock del cliente HTTP.
 - Cubrir el ciclo completo con mocks: `upsertCampaign` → addLead per
   lead → simulate webhook event → verificar transiciones.
+
+---
+
+## 6. Pendientes de Pere (fuera de código, decidir antes del smoke real)
+
+Cosas que Pere resuelve en Lemlist UI o en el copy antes de que
+T024 dispare los primeros 50 envíos reales:
+
+- **Firma de Lemlist con enlace de LinkedIn al admin.** La firma
+  auto-expandida por Lemlist en `{{signature}}` incluye un enlace
+  de LinkedIn que apunta al usuario admin de la cuenta (no al
+  firmante del email). Efecto: un lead que clica el LinkedIn de
+  la firma aterriza en el perfil equivocado. Corrección en
+  Lemlist UI (config de mailbox / signature por mailbox, o quitar
+  el bloque de LinkedIn del signature auto). Sin código nuestro
+  implicado.
+- **Firma duplicada** (BACKLOG). El body actual lleva
+  `Pau · Umania Labs` como byline literal después del CTA de
+  Calendly Y `{{signature}}` al final. Redundante. Decisión de
+  Pere: quitar una de las dos. Opciones concretas en el BACKLOG.
+- **Capitalización de company** (BACKLOG). Vibe devuelve
+  `"Product hackers"`; Lex extrae `"Product Hackers"` del `<title>`
+  de la web. Mismo email, misma frase, capitalización distinta.
+  Tres propuestas en el BACKLOG; Pere adelantó que su preferida
+  para la próxima sesión es que Lex devuelva `company_display`.
 
 ---
 
