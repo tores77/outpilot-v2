@@ -43,6 +43,13 @@ export type SmokeSelectionCounts = {
   pool_after_base_filters: number;
   excluded_by_active_campaign: number;
   excluded_by_outreach_exclusions: number;
+  // Desglose granular por reason (T024 · decisión Pere): cuando
+  // outreach_exclusions se pobla desde varias fuentes
+  // (unsubscribed, previous_campaign:<cam_id>), este mapa dice
+  // cuántos leads del pool se descartaron por cada motivo. Barato de
+  // computar y útil para ver cuánto solapa el fetch nuevo de Vibe con
+  // las campañas anteriores.
+  excluded_by_outreach_exclusions_by_reason: Record<string, number>;
   excluded_by_company_cap: number;
   selected: number;
 };
@@ -119,37 +126,43 @@ export async function selectSmokeCandidates(
     (activeCLs ?? []).map((row) => row.lead_id),
   );
 
-  // 3. Fetch emails en outreach_exclusions.
+  // 3. Fetch emails + reason en outreach_exclusions.
   //
   // La tabla enforce CHECK (email = lower(email)) — todo lo escrito
   // ya viene en lowercase, así que aquí no volvemos a lowercasear al
   // leer. Sí lo hacemos sobre el lead.email (que puede venir con
   // mayúsculas de Vibe) al comparar.
+  //
+  // Traemos también `reason` para el desglose granular por motivo
+  // (ver SmokeSelectionCounts.excluded_by_outreach_exclusions_by_reason).
   const { data: exclusions, error: exclErr } = await supabase
     .from("outreach_exclusions")
-    .select("email")
+    .select("email, reason")
     .eq("tenant_id", tenantId);
   if (exclErr) {
     throw new Error(`selectSmokeCandidates exclusions: ${exclErr.message}`);
   }
-  // Los emails en la tabla ya están en lowercase (CHECK constraint),
-  // así que no volvemos a lowercasear aquí; sí lo hacemos sobre el
-  // lead.email al comparar.
-  const excludedEmails = new Set(
-    (exclusions ?? []).map((row) => row.email),
-  );
+  // Map email → reason (los emails son únicos por PK).
+  const excludedEmailToReason = new Map<string, string>();
+  for (const row of exclusions ?? []) {
+    excludedEmailToReason.set(row.email, row.reason);
+  }
 
   // 4. Aplicar exclusiones.
   let excludedByActive = 0;
   let excludedByExclusions = 0;
+  const excludedByReason: Record<string, number> = {};
   const afterExclusions: SmokeCandidate[] = [];
   for (const c of baseFiltered) {
     if (activeLeadIds.has(c.id)) {
       excludedByActive += 1;
       continue;
     }
-    if (excludedEmails.has(c.email.toLowerCase())) {
+    const matchedReason = excludedEmailToReason.get(c.email.toLowerCase());
+    if (matchedReason !== undefined) {
       excludedByExclusions += 1;
+      excludedByReason[matchedReason] =
+        (excludedByReason[matchedReason] ?? 0) + 1;
       continue;
     }
     afterExclusions.push(c);
@@ -186,6 +199,7 @@ export async function selectSmokeCandidates(
       pool_after_base_filters: baseFiltered.length,
       excluded_by_active_campaign: excludedByActive,
       excluded_by_outreach_exclusions: excludedByExclusions,
+      excluded_by_outreach_exclusions_by_reason: excludedByReason,
       excluded_by_company_cap: excludedByCompanyCap,
       selected: selected.length,
     },

@@ -43,3 +43,8 @@ supabase/.temp/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# working directory para exports one-off (eval sets sin puntuar,
+# dumps temporales). Los que Pere promueve a baseline se copian a
+# mano a docs/evals/ ya anonimizados.
+tmp/

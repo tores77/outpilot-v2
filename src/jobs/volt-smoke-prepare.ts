@@ -112,11 +112,17 @@ export const voltSmokePrepare = inngest.createFunction(
         maxPerCompany: MAX_PER_COMPANY,
       });
       if (result.counts.selected < campaign.smoke_size) {
+        const reasonBreakdown = Object.entries(
+          result.counts.excluded_by_outreach_exclusions_by_reason,
+        )
+          .map(([k, v]) => `${k}=${v}`)
+          .join(", ");
         throw new Error(
           `volt-smoke-prepare: pool insuficiente. smoke_size=${campaign.smoke_size}, ` +
             `pool_after_base_filters=${result.counts.pool_after_base_filters}, ` +
             `excluded_by_active_campaign=${result.counts.excluded_by_active_campaign}, ` +
-            `excluded_by_outreach_exclusions=${result.counts.excluded_by_outreach_exclusions}, ` +
+            `excluded_by_outreach_exclusions=${result.counts.excluded_by_outreach_exclusions} ` +
+            `{${reasonBreakdown || "—"}}, ` +
             `excluded_by_company_cap=${result.counts.excluded_by_company_cap}, ` +
             `selected=${result.counts.selected}. Corre Nova (fetch Vibe) para engordar el pool.`,
         );

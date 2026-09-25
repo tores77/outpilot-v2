@@ -114,6 +114,45 @@ export function resolveOpener(args: {
 }
 
 /**
+ * Tokeniza un nombre de empresa para el guard de company_display:
+ * normaliza (lowercase + sin diacríticos), separa por caracteres no
+ * alfanuméricos, y descarta tokens < 3 caracteres para no cazar
+ * ruido tipo "s", "l", "de", "y" que aparecen en sufijos legales
+ * ("S.L.", "S.A.", "y Cía"). El threshold 3 conserva palabras cortas
+ * con contenido ("sur", "sky", "ibm") a costa de posibles falsos
+ * positivos en preposiciones ("del", "the") — coste aceptable: el
+ * guard busca detectar scrapes claramente erróneos, no ser perfecto.
+ */
+const COMBINING_DIACRITICS = /[̀-ͯ]/g;
+
+function tokenizeCompany(s: string): Set<string> {
+  return new Set(
+    s
+      .normalize("NFD")
+      .replace(COMBINING_DIACRITICS, "")
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length >= 3),
+  );
+}
+
+/**
+ * T024 guard: `company_display` de Lex y `lead.company` deben
+ * compartir al menos una palabra significativa (case-insensitive,
+ * sin tildes). Si no, es porque Lex scrapeó la web equivocada
+ * (dominio caducado, redirección, error de resolución) y renombraría
+ * la empresa en el subject/body. En ese caso descartamos
+ * company_display y volvemos a lead.company. Exportado para tests.
+ */
+export function shareAnyCompanyWord(a: string, b: string): boolean {
+  const A = tokenizeCompany(a);
+  if (A.size === 0) return false;
+  const B = tokenizeCompany(b);
+  for (const w of A) if (B.has(w)) return true;
+  return false;
+}
+
+/**
  * Compone la personalization map completa que Volt envía a Lemlist
  * en addLead. Lemlist expande {{firstName}}, {{lastName}},
  * {{companyName}} y {{opener}} en el body del step al enviar el email;
@@ -126,7 +165,8 @@ export function resolveOpener(args: {
  * Lemlist substituye — Vibe suele darnos el company en TODO MAYÚSCULAS
  * ("METALES DEL SUR S.L."), y el email debe leer "Metales del Sur"
  * si la web de la empresa lo capitaliza así. Fallback a lead.company
- * si Lex devolvió null (v1 sin campo, o no encontró capitalización).
+ * si Lex devolvió null (v1 sin campo, o no encontró capitalización)
+ * O si el guard shareAnyCompanyWord detecta un scrape errado.
  */
 export function buildAddLeadPersonalization(args: {
   personalization: unknown;
@@ -136,14 +176,23 @@ export function buildAddLeadPersonalization(args: {
   const { lead, personalization } = args;
   const opener = resolveOpener(args);
   const p = (personalization ?? {}) as { company_display?: unknown };
-  const companyDisplay =
+  const rawDisplay =
     typeof p.company_display === "string" && p.company_display.trim() !== ""
       ? p.company_display.trim()
+      : null;
+  const leadCompany = lead.company ?? "";
+  // Guard: si Lex propone un display que no comparte NINGUNA palabra
+  // significativa con lead.company, descartamos el display (probable
+  // scrape de web equivocada). Si el lead no tiene company o el
+  // display no supera el guard → usamos lead.company literal.
+  const companyDisplay =
+    rawDisplay && leadCompany && shareAnyCompanyWord(rawDisplay, leadCompany)
+      ? rawDisplay
       : null;
   return {
     firstName: lead.first_name ?? "",
     lastName: lead.last_name ?? "",
-    companyName: companyDisplay ?? lead.company ?? "",
+    companyName: companyDisplay ?? leadCompany,
     opener,
   };
 }

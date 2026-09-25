@@ -21,12 +21,22 @@ type FakeLead = {
   tenant_id: string;
 };
 
+type ExclusionRow = { email: string; reason: string };
+
 type FakeState = {
   leads: FakeLead[];
   activeCampaignLeadIds: string[];
-  exclusionEmails: string[];
+  // Filas de outreach_exclusions con reason explícito. Para tests
+  // legacy que solo pasan emails, hay un helper legacyExclusions().
+  exclusionRows: ExclusionRow[];
   simulateExclusionsMissing?: boolean;
 };
+
+// Helper para tests que no necesitan probar el desglose por reason:
+// asigna un reason genérico a todos los emails pasados.
+function legacyExclusions(emails: string[]): ExclusionRow[] {
+  return emails.map((email) => ({ email, reason: "unsubscribed" }));
+}
 
 function makeMockSupabase(state: FakeState) {
   return {
@@ -108,7 +118,7 @@ function exclusionsChain(state: FakeState) {
         };
       }
       return {
-        data: state.exclusionEmails.map((email) => ({ email })),
+        data: state.exclusionRows,
         error: null,
       };
     },
@@ -154,7 +164,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "other_tenant", tenant_id: "t-other" }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, BASE_ARGS);
     expect(r.candidates.map((c) => c.id)).toEqual(["ok"]);
@@ -171,7 +181,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "ok", email: "ana@acme.com", company: "Acme" }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, BASE_ARGS);
     expect(r.candidates.map((c) => c.id)).toEqual(["ok"]);
@@ -184,7 +194,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "b", email: "b@y.com", company: "Y" }),
       ],
       activeCampaignLeadIds: ["a"],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, BASE_ARGS);
     expect(r.candidates.map((c) => c.id)).toEqual(["b"]);
@@ -198,7 +208,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "b", email: "b@y.com", company: "Y" }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: ["ana@acme.com"],
+      exclusionRows: legacyExclusions(["ana@acme.com"]),
     });
     const r = await selectSmokeCandidates(supabase, BASE_ARGS);
     expect(r.candidates.map((c) => c.id)).toEqual(["b"]);
@@ -217,7 +227,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "other", email: "o@other.com", company: "Other", icp_score: 78 }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, { ...BASE_ARGS, maxPerCompany: 2 });
     // De Acme, solo los 2 de mayor score (95, 90). Other queda incluido.
@@ -233,7 +243,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "bot", company: "C", email: "c@z.com", icp_score: 80 }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, { ...BASE_ARGS, limit: 2 });
     expect(r.candidates.map((c) => c.id)).toEqual(["top", "mid"]);
@@ -247,7 +257,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "old", company: "B", email: "b@y.com", icp_score: 80, created_at: "2026-09-01T00:00:00Z" }),
       ],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
     });
     const r = await selectSmokeCandidates(supabase, { ...BASE_ARGS, limit: 2 });
     // Mismo score → el más antiguo primero.
@@ -258,7 +268,7 @@ describe("selectSmokeCandidates", () => {
     const supabase = makeMockSupabase({
       leads: [lead({ id: "ok", email: "ok@example.com", company: "Acme" })],
       activeCampaignLeadIds: [],
-      exclusionEmails: [],
+      exclusionRows: [],
       simulateExclusionsMissing: true,
     });
     await expect(selectSmokeCandidates(supabase, BASE_ARGS)).rejects.toThrow(
@@ -280,7 +290,7 @@ describe("selectSmokeCandidates", () => {
         lead({ id: "beta", email: "o@beta.com", company: "Beta", icp_score: 82 }),
       ],
       activeCampaignLeadIds: ["acme_active"],
-      exclusionEmails: ["b@acme.com"],
+      exclusionRows: legacyExclusions(["b@acme.com"]),
     });
     const r = await selectSmokeCandidates(supabase, { ...BASE_ARGS, maxPerCompany: 2 });
     expect(r.counts.pool_after_base_filters).toBe(6);
@@ -290,5 +300,46 @@ describe("selectSmokeCandidates", () => {
     expect(r.counts.excluded_by_company_cap).toBe(1);
     // Total seleccionados: 2 de Acme + 1 de Beta
     expect(r.counts.selected).toBe(3);
+  });
+
+  it("T024 desglose granular por reason: excluded_by_outreach_exclusions_by_reason", async () => {
+    const supabase = makeMockSupabase({
+      leads: [
+        lead({ id: "unsub", email: "a@x.com", company: "A", icp_score: 95 }),
+        lead({ id: "prev_cam_1a", email: "b@x.com", company: "B", icp_score: 90 }),
+        lead({ id: "prev_cam_1b", email: "c@x.com", company: "C", icp_score: 89 }),
+        lead({ id: "prev_cam_2", email: "d@x.com", company: "D", icp_score: 88 }),
+        lead({ id: "ok", email: "e@x.com", company: "E", icp_score: 87 }),
+      ],
+      activeCampaignLeadIds: [],
+      exclusionRows: [
+        { email: "a@x.com", reason: "unsubscribed" },
+        { email: "b@x.com", reason: "previous_campaign:cam_ALPHA" },
+        { email: "c@x.com", reason: "previous_campaign:cam_ALPHA" },
+        { email: "d@x.com", reason: "previous_campaign:cam_BETA" },
+      ],
+    });
+    const r = await selectSmokeCandidates(supabase, BASE_ARGS);
+    expect(r.candidates.map((c) => c.id)).toEqual(["ok"]);
+    expect(r.counts.excluded_by_outreach_exclusions).toBe(4);
+    expect(r.counts.excluded_by_outreach_exclusions_by_reason).toEqual({
+      unsubscribed: 1,
+      "previous_campaign:cam_ALPHA": 2,
+      "previous_campaign:cam_BETA": 1,
+    });
+  });
+
+  it("T024 desglose: mapa vacío cuando no hay exclusiones que matcheen", async () => {
+    const supabase = makeMockSupabase({
+      leads: [lead({ id: "ok", email: "ok@x.com", company: "Acme" })],
+      activeCampaignLeadIds: [],
+      exclusionRows: [
+        // Existen exclusiones pero ninguna matchea el lead único.
+        { email: "unrelated@y.com", reason: "unsubscribed" },
+      ],
+    });
+    const r = await selectSmokeCandidates(supabase, BASE_ARGS);
+    expect(r.counts.excluded_by_outreach_exclusions).toBe(0);
+    expect(r.counts.excluded_by_outreach_exclusions_by_reason).toEqual({});
   });
 });

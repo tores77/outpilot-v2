@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAddLeadPersonalization,
   resolveOpener,
+  shareAnyCompanyWord,
   substituteLeadVars,
   type LeadForOpener,
 } from "@/lib/volt/opener";
@@ -241,5 +242,87 @@ describe("buildAddLeadPersonalization", () => {
       },
     });
     expect(map.companyName).toBe("ACME");
+  });
+
+  it("T024 guard shareAnyCompanyWord: company_display sin ninguna palabra en común con lead.company → descartado", () => {
+    // Lex scrapea la web equivocada (dominio caducado, redirección, etc.)
+    // y devuelve un nombre que no tiene NADA que ver con la empresa.
+    const p = {
+      personalization: "personalized",
+      opener: "algo",
+      company_display: "Acme Studio",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "Pepe",
+        last_name: "López",
+        company: "METALES DEL SUR S.L.",
+      },
+    });
+    expect(map.companyName).toBe("METALES DEL SUR S.L.");
+  });
+
+  it("T024 guard shareAnyCompanyWord: al menos una palabra en común → company_display gana", () => {
+    // Caso normal: Lex re-capitaliza correctamente. "Metales del Sur"
+    // comparte "metales", "del", "sur" con "METALES DEL SUR S.L.".
+    const p = {
+      personalization: "personalized",
+      opener: "algo",
+      company_display: "Metales del Sur",
+    };
+    const map = buildAddLeadPersonalization({
+      personalization: p,
+      openerFallback: OPENER_FALLBACK,
+      lead: {
+        first_name: "Pepe",
+        last_name: "López",
+        company: "METALES DEL SUR S.L.",
+      },
+    });
+    expect(map.companyName).toBe("Metales del Sur");
+  });
+});
+
+describe("shareAnyCompanyWord (guard T024)", () => {
+  it("match exacto case-insensitive", () => {
+    expect(shareAnyCompanyWord("Acme", "acme")).toBe(true);
+  });
+
+  it("match ignorando sufijos legales tipo S.L.", () => {
+    expect(shareAnyCompanyWord("Metales del Sur", "METALES DEL SUR S.L.")).toBe(
+      true,
+    );
+  });
+
+  it("match ignorando diacríticos", () => {
+    expect(shareAnyCompanyWord("Álava Química", "alava")).toBe(true);
+    expect(shareAnyCompanyWord("Cañón Prensados", "canon prensados sl")).toBe(
+      true,
+    );
+  });
+
+  it("no match: nombres distintos sin overlap", () => {
+    expect(shareAnyCompanyWord("Acme Studio", "Metales del Sur")).toBe(false);
+    expect(shareAnyCompanyWord("Nova Corp", "Zenith Foods")).toBe(false);
+  });
+
+  it("no match: solo tokens < 3 chars en común (S, L, y)", () => {
+    // "S.L." vs "S.A." — ambos generan solo tokens < 3, que se filtran.
+    // El shareAnyCompanyWord devuelve false porque no queda ningún token
+    // significativo que comparar.
+    expect(shareAnyCompanyWord("S.L.", "S.A.")).toBe(false);
+  });
+
+  it("no match: string vacío o solo puntuación", () => {
+    expect(shareAnyCompanyWord("", "acme")).toBe(false);
+    expect(shareAnyCompanyWord("acme", "")).toBe(false);
+    expect(shareAnyCompanyWord("...", "acme")).toBe(false);
+  });
+
+  it("match con palabras cortas significativas (>=3 chars)", () => {
+    // "Sur" (3) se conserva; "Del" (3) también.
+    expect(shareAnyCompanyWord("Grupo Sur", "Sur Inc")).toBe(true);
   });
 });
