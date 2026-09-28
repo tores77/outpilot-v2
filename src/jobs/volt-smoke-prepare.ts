@@ -58,6 +58,13 @@ const MAX_PER_COMPANY = 2;
 type CampaignLeadInsert =
   Database["public"]["Tables"]["campaign_leads"]["Insert"];
 
+// onConflict target del upsert de campaign_leads. Debe coincidir
+// EXACTAMENTE (columnas + orden) con el constraint
+// campaign_leads_campaign_lead_uniq creado en la migration 008.
+// Exportado como constante para que el test de regresión pueda
+// verificar que no se toca por error.
+export const CAMPAIGN_LEADS_UPSERT_ON_CONFLICT = "campaign_id,lead_id";
+
 export const voltSmokePrepare = inngest.createFunction(
   {
     id: "volt-smoke-prepare",
@@ -140,14 +147,16 @@ export const voltSmokePrepare = inngest.createFunction(
         campaign_id: campaignId,
         lead_id: leadId,
       }));
-      // Unique idx: (campaign_id, lead_id) WHERE removed_at IS NULL. Con
-      // ignoreDuplicates evitamos error si un lead ya está activo. En un
-      // flujo limpio (status=draft, primer prep) esto no debería
-      // dispararse, pero es defensivo ante re-runs de Inngest.
+      // T024: unique constraint TOTAL (campaign_id, lead_id) creado
+      // en migration 008_campaign_leads_unique.sql (antes solo había
+      // índice parcial WHERE removed_at IS NULL, que Postgres NO
+      // acepta para ON CONFLICT). El orden importa: coincide con la
+      // constraint. Con ignoreDuplicates evitamos error si el lead ya
+      // está en la campaña (re-runs de Inngest, doble click de prep).
       const { data, error } = await supabase
         .from("campaign_leads")
         .upsert(rows, {
-          onConflict: "campaign_id,lead_id",
+          onConflict: CAMPAIGN_LEADS_UPSERT_ON_CONFLICT,
           ignoreDuplicates: true,
         })
         .select("id");
