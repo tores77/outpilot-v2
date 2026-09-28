@@ -77,56 +77,154 @@ console.log(`[repersonalize] campaign_id: ${campaignId}`);
 console.log(`[repersonalize] mode: ${execute ? "EXECUTE" : "DRY-RUN"}${fire ? " + FIRE" : ""}`);
 
 // 1. Cargar campaign_leads activos con su personalization.
+//    NO cargamos email ni nombre — el listado NUNCA imprime PII.
+//    company_display viene preferiblemente del personalization
+//    (más fresco); si no, del custom_fields del lead. Fallback: "?".
 const { data: cls, error } = await supabase
   .from("campaign_leads")
-  .select("id, lead_id, personalization, lead:leads!inner(company, email)")
+  .select(
+    "id, lead_id, personalization, lead:leads!inner(company, custom_fields)",
+  )
   .eq("campaign_id", campaignId)
   .is("removed_at", null);
 if (error) throw new Error(`select failed: ${error.message}`);
 
 console.log(`[repersonalize] campaign_leads activos: ${cls?.length ?? 0}`);
 
-// 2. Clasificar y filtrar los flagged.
-const flagged = [];
-const buckets = { generic: 0, opener_rejected: 0, personalized_ok: 0, unpersonalized: 0 };
-for (const cl of cls ?? []) {
-  const p = cl.personalization ?? null;
-  if (!p) {
-    buckets.unpersonalized += 1;
-    continue;
+// ============================================================
+// DUPLICADO INLINE de:
+//   src/lib/lex/response.ts:guardOpenerContent
+//   src/lib/lex/repersonalize-criteria.ts:classifyForRepersonalize
+//   src/lib/lex/repersonalize-criteria.ts:isFlaggedForRepersonalize
+//
+// Motivación: script Node .mjs ejecutado con `node --env-file-if-exists`,
+// sin tsx — no puede importar TS. Los tests unitarios de la versión
+// TS son la fuente de verdad. Si cambia el guard o los criterios,
+// sincronizar aquí a mano.
+// ============================================================
+
+const FORBIDDEN_PATTERN =
+  /[?¿]|\b(web|visibilidad|imagino|requiere|debe ser|debe de ser)\b|\bme (preguntaba|pregunto|gustar[íi]a|interesa)\b/i;
+const OPENER_GUARD_MIN_LENGTH = 60;
+
+function guardOpenerContent(opener) {
+  const raw = (opener ?? "").trim();
+  if (!FORBIDDEN_PATTERN.test(raw)) {
+    return { rejected: false, opener: raw, trimmed: false };
   }
-  const personalization = p.personalization;
-  const reason = p.reason_if_generic ?? "";
-  if (personalization === "generic") {
+  const firstBreak = raw.search(/[.;]/);
+  const candidate = firstBreak >= 0 ? raw.slice(0, firstBreak + 1).trim() : raw;
+  if (candidate.length < OPENER_GUARD_MIN_LENGTH) {
+    return {
+      rejected: true,
+      reason: `opener_rejected_by_guard:too_short_after_trim(${candidate.length})`,
+    };
+  }
+  if (FORBIDDEN_PATTERN.test(candidate)) {
+    return {
+      rejected: true,
+      reason: "opener_rejected_by_guard:forbidden_pattern_persists",
+    };
+  }
+  return {
+    rejected: false,
+    opener: candidate,
+    trimmed: candidate.length < raw.length,
+  };
+}
+
+function classifyForRepersonalize(p) {
+  if (p === null || typeof p !== "object") {
+    return { kind: "unpersonalized", reason: "no_personalization_yet" };
+  }
+  const status = p.personalization;
+  if (status === "generic") {
+    const reason = typeof p.reason_if_generic === "string" ? p.reason_if_generic : "";
     if (reason.startsWith("opener_rejected_by_guard")) {
-      buckets.opener_rejected += 1;
-      flagged.push({ id: cl.id, company: cl.lead?.company, email: cl.lead?.email, reason });
-    } else {
-      buckets.generic += 1;
-      flagged.push({ id: cl.id, company: cl.lead?.company, email: cl.lead?.email, reason });
+      return { kind: "opener_rejected_by_guard", reason };
     }
-  } else if (personalization === "personalized") {
-    buckets.personalized_ok += 1;
+    return { kind: "generic", reason: reason || "no_reason_recorded" };
+  }
+  if (status === "personalized") {
+    const opener = typeof p.opener === "string" ? p.opener : "";
+    if (opener.trim().length === 0) {
+      return {
+        kind: "opener_would_be_recut",
+        reason: "personalized_empty_opener",
+      };
+    }
+    const guard = guardOpenerContent(opener);
+    if (guard.rejected) {
+      return { kind: "opener_would_be_recut", reason: guard.reason };
+    }
+    if (guard.trimmed) {
+      return { kind: "opener_would_be_recut", reason: "would_trim_second_clause" };
+    }
+    return { kind: "personalized_ok", reason: "opener_passes_guard" };
+  }
+  return { kind: "unpersonalized", reason: "unknown_status" };
+}
+const FLAGGED_KINDS = new Set([
+  "generic",
+  "opener_rejected_by_guard",
+  "opener_would_be_recut",
+]);
+
+// ============================================================
+
+function pickCompanyDisplay(cl) {
+  // Preferir el company_display del personalization (más fresco:
+  // lo puso Lex con la capitalización que devolvió Vibe/website).
+  // Si no, custom_fields.company_display. Fallback: "?".
+  const fromPers = cl.personalization?.company_display;
+  if (typeof fromPers === "string" && fromPers.trim() !== "") return fromPers;
+  const fromCustom = cl.lead?.custom_fields?.company_display;
+  if (typeof fromCustom === "string" && fromCustom.trim() !== "") return fromCustom;
+  const fromLead = cl.lead?.company;
+  if (typeof fromLead === "string" && fromLead.trim() !== "") return fromLead;
+  return "?";
+}
+
+// 2. Clasificar + filtrar los flagged (re-evaluando el guard sobre
+//    el opener guardado, no confiando en un flag histórico).
+const flagged = [];
+const buckets = {
+  personalized_ok: 0,
+  unpersonalized: 0,
+  generic: 0,
+  opener_rejected_by_guard: 0,
+  opener_would_be_recut: 0,
+};
+for (const cl of cls ?? []) {
+  const c = classifyForRepersonalize(cl.personalization ?? null);
+  buckets[c.kind] = (buckets[c.kind] ?? 0) + 1;
+  if (FLAGGED_KINDS.has(c.kind)) {
+    flagged.push({
+      id: cl.id,
+      company_display: pickCompanyDisplay(cl),
+      kind: c.kind,
+      reason: c.reason,
+    });
   }
 }
 
 console.log(`\n[repersonalize] desglose:`);
-console.log(`  personalized OK (no se toca): ${buckets.personalized_ok}`);
-console.log(`  sin personalizar (personalization=null): ${buckets.unpersonalized}`);
-console.log(`  generic (Haiku no pudo): ${buckets.generic}`);
-console.log(`  opener_rejected_by_guard (regla 12): ${buckets.opener_rejected}`);
-console.log(`  total a repersonalizar: ${flagged.length}`);
+console.log(`  personalized OK (no se toca):                      ${buckets.personalized_ok}`);
+console.log(`  sin personalizar (personalization=null):           ${buckets.unpersonalized}`);
+console.log(`  generic (Haiku no pudo):                           ${buckets.generic}`);
+console.log(`  opener_rejected_by_guard (histórico):              ${buckets.opener_rejected_by_guard}`);
+console.log(`  opener_would_be_recut (guard nuevo sobre existente): ${buckets.opener_would_be_recut}`);
+console.log(`  total a repersonalizar:                            ${flagged.length}`);
 
 if (flagged.length === 0) {
   console.log(`\n[repersonalize] nada que hacer.`);
   process.exit(0);
 }
 
-// 3. Preview
-console.log(`\n[repersonalize] flagged (hasta 20):`);
+// 3. Preview SIN PII. Solo company_display + motivo truncado.
+console.log(`\n[repersonalize] flagged (hasta 20, sin PII):`);
 for (const f of flagged.slice(0, 20)) {
-  console.log(`  ${f.company ?? "?"} · ${f.email ?? "?"}`);
-  console.log(`    reason: ${f.reason.slice(0, 100)}`);
+  console.log(`  ${f.company_display} · [${f.kind}] ${f.reason.slice(0, 80)}`);
 }
 
 // 4. Coste estimado
