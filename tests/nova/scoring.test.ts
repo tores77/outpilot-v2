@@ -4,6 +4,7 @@ import {
   buildLeadPayload,
   classifyDecider,
   computeScoreUpdate,
+  isScoringReviewReason,
   parseScoringResponse,
   type ScoredLead,
 } from "@/lib/nova/scoring";
@@ -429,5 +430,137 @@ describe("applyScoreMechanicalGates (T024)", () => {
     const r = applyScoreMechanicalGates(noFields, { title: "CEO" }, opts);
     expect(r.score).toBe(50);
     expect(r.gated).toContain("sector_unknown");
+  });
+
+  // ============================================================
+  // T024 (2026-09-28): filiales de matrices extranjeras
+  // ============================================================
+
+  it("REGRESIÓN Stulz España: is_foreign_subsidiary=true con score 82 → cap 40", () => {
+    // Stulz España: filial de Stulz Alemania. La web la decide la
+    // matriz. El scoring anterior le dio 82 (fabricante climatización,
+    // seniority OK) pero es exclusión clara del ICP.
+    const stulz = scoredLead({
+      id: "stulz",
+      score: 82,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+      is_foreign_subsidiary: true,
+      foreign_subsidiary_evidence:
+        "part of the STULZ group with headquarters in Hamburg, Germany",
+    });
+    const r = applyScoreMechanicalGates(
+      stulz,
+      {
+        title: "Managing Director",
+        custom_fields: { firmographics_domain_verified: "true" },
+      },
+      { ...opts, foreignSubsidiaryMaxScore: 40 },
+    );
+    expect(r.score).toBe(40);
+    expect(r.gated).toContain("foreign_subsidiary");
+    expect(r.needs_review_reasons).toContain("foreign_subsidiary");
+  });
+
+  it("REGRESIÓN Hosokawa Alpine: is_foreign_subsidiary=true con score 80 → cap 40", () => {
+    const hosokawa = scoredLead({
+      id: "hosokawa",
+      score: 80,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+      is_foreign_subsidiary: true,
+      foreign_subsidiary_evidence:
+        "Hosokawa Alpine España, subsidiary of Hosokawa Micron Group",
+    });
+    const r = applyScoreMechanicalGates(
+      hosokawa,
+      {
+        title: "CEO",
+        custom_fields: { firmographics_domain_verified: "true" },
+      },
+      { ...opts, foreignSubsidiaryMaxScore: 40 },
+    );
+    expect(r.score).toBe(40);
+    expect(r.gated).toContain("foreign_subsidiary");
+  });
+
+  it("Intarcon (fabricante español no-filial): is_foreign_subsidiary=false → sin cap", () => {
+    const intarcon = scoredLead({
+      id: "intarcon",
+      score: 88,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+      is_foreign_subsidiary: false,
+    });
+    const r = applyScoreMechanicalGates(
+      intarcon,
+      {
+        title: "Director General",
+        custom_fields: { firmographics_domain_verified: "true" },
+      },
+      { ...opts, foreignSubsidiaryMaxScore: 40 },
+    );
+    expect(r.score).toBe(88);
+    expect(r.gated).not.toContain("foreign_subsidiary");
+  });
+
+  it("Ibercisa (fabricante español no-filial): is_foreign_subsidiary=false → sin cap", () => {
+    const ibercisa = scoredLead({
+      id: "ibercisa",
+      score: 78,
+      reasoning_fields_used: ["sector", "company_description", "title"],
+      is_foreign_subsidiary: false,
+    });
+    const r = applyScoreMechanicalGates(
+      ibercisa,
+      {
+        title: "CEO",
+        custom_fields: { firmographics_domain_verified: "true" },
+      },
+      { ...opts, foreignSubsidiaryMaxScore: 40 },
+    );
+    expect(r.score).toBe(78);
+    expect(r.gated).not.toContain("foreign_subsidiary");
+  });
+
+  it("is_foreign_subsidiary=true pero score ya ≤40 → gate no cambia nada", () => {
+    const lowScore = scoredLead({
+      score: 25,
+      reasoning_fields_used: ["sector", "title"],
+      is_foreign_subsidiary: true,
+    });
+    const r = applyScoreMechanicalGates(lowScore, { title: "CEO" }, opts);
+    expect(r.score).toBe(25);
+    expect(r.gated).not.toContain("foreign_subsidiary");
+  });
+
+  it("is_foreign_subsidiary undefined (modelo omite el campo) → no dispara el gate", () => {
+    const noFlag = scoredLead({
+      score: 80,
+      reasoning_fields_used: ["sector", "title"],
+      // is_foreign_subsidiary omitido
+    });
+    const r = applyScoreMechanicalGates(noFlag, { title: "CEO" }, opts);
+    expect(r.score).toBe(80);
+    expect(r.gated).not.toContain("foreign_subsidiary");
+  });
+});
+
+describe("isScoringReviewReason (T024 fix 2026-09-28)", () => {
+  it("motivos del scoring → true", () => {
+    expect(isScoringReviewReason("low_score:32")).toBe(true);
+    expect(isScoringReviewReason("low_score:0")).toBe(true);
+    expect(isScoringReviewReason("sector_unknown")).toBe(true);
+    expect(isScoringReviewReason("secondary_decider_cap:65")).toBe(true);
+    expect(isScoringReviewReason("firmographics_domain_unverified:65")).toBe(
+      true,
+    );
+    expect(isScoringReviewReason("foreign_subsidiary")).toBe(true);
+  });
+  it("motivos de pipeline → false (Nova los preserva al re-puntuar)", () => {
+    expect(isScoringReviewReason("generic_email")).toBe(false);
+    expect(isScoringReviewReason("data_mismatch")).toBe(false);
+    expect(isScoringReviewReason("unknown_legacy")).toBe(false);
+  });
+  it("strings vacíos / basura → false", () => {
+    expect(isScoringReviewReason("")).toBe(false);
+    expect(isScoringReviewReason("random")).toBe(false);
   });
 });

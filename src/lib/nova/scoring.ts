@@ -122,6 +122,13 @@ export type ScoredLead = {
   // el score > 50 se capa. Opcional para tolerancia con respuestas
   // sin el campo (parser degrada score en ese caso).
   reasoning_fields_used?: string[];
+  // T024 (post-rescore 2026-09-28): flag que el modelo marca cuando
+  // detecta filial española de matriz extranjera (Stulz España,
+  // Hosokawa Alpine, etc.). El gate mecánico capa el score global a
+  // foreignSubsidiaryMaxScore (default 40) cuando es true. Undefined
+  // si el modelo omite el campo (parser tolerante).
+  is_foreign_subsidiary?: boolean;
+  foreign_subsidiary_evidence?: string | null;
 };
 
 export type ScoreThresholds = {
@@ -140,6 +147,26 @@ const SECTOR_FIELDS: readonly string[] = [
   "company_description",
   "linkedin_category",
 ];
+
+// Prefijos de review_reason que POSA el scoring de Nova. Cuando el
+// job re-puntúa un lead, sustituye estos motivos por los del scoring
+// nuevo (o los quita si el score nuevo ya no los merece). Los
+// motivos de pipeline (generic_email, data_mismatch, unknown_legacy —
+// puestos por el mapper o backfills) NO están en esta lista y se
+// preservan tal cual.
+const SCORING_REVIEW_REASON_PREFIXES: readonly string[] = [
+  "low_score:",
+  "sector_unknown",
+  "secondary_decider_cap:",
+  "firmographics_domain_unverified:",
+  "foreign_subsidiary",
+];
+
+export function isScoringReviewReason(part: string): boolean {
+  return SCORING_REVIEW_REASON_PREFIXES.some((prefix) =>
+    part.startsWith(prefix),
+  );
+}
 
 // Título matchea primary/secondary/ninguno según el ICP. Comparación
 // case-insensitive con contains — cubre variantes de idioma sin
@@ -172,6 +199,11 @@ export type MechanicalGateOptions = {
   // pide sector_fit ≤ 60 y el gate mecánico corta el global por
   // arriba (default 65) como red de seguridad.
   firmographicsUnverifiedMaxScore?: number;
+  // Cap del score cuando el modelo marca is_foreign_subsidiary=true.
+  // T024 (2026-09-28): filiales de matrices extranjeras (Stulz España,
+  // Hosokawa Alpine) NO deciden su propia web. Aplica un cap duro
+  // en código, sin confiar en que Haiku baje el número.
+  foreignSubsidiaryMaxScore?: number;
 };
 
 export type MechanicalGateResult = {
@@ -181,6 +213,7 @@ export type MechanicalGateResult = {
     | "sector_unknown"
     | "secondary_decider_cap"
     | "firmographics_domain_unverified"
+    | "foreign_subsidiary"
   >;
 };
 
@@ -238,6 +271,21 @@ export function applyScoreMechanicalGates(
       score = cap;
       reasons.push(`firmographics_domain_unverified:${cap}`);
       gated.push("firmographics_domain_unverified");
+    }
+  }
+
+  // Gate 4: foreign_subsidiary (T024 2026-09-28)
+  // Filiales de matrices extranjeras: la web la decide la matriz, no
+  // el lead. Cap duro en código para no depender de que Haiku baje
+  // el número. El motivo se guarda SIN sufijo numérico (contrasta
+  // con secondary_decider_cap:65) porque el cap es semántico, no
+  // aritmético — el humano lo interpreta como "no es ICP" y punto.
+  if (raw.is_foreign_subsidiary === true) {
+    const cap = opts.foreignSubsidiaryMaxScore ?? 40;
+    if (score > cap) {
+      score = cap;
+      reasons.push("foreign_subsidiary");
+      gated.push("foreign_subsidiary");
     }
   }
 
@@ -351,6 +399,14 @@ export function parseScoringResponse(text: string): ScoreParseResult {
     const fieldsUsed = Array.isArray(record.fields_used)
       ? record.fields_used.filter((v): v is string => typeof v === "string")
       : undefined;
+    const isForeignSub =
+      typeof record.is_foreign_subsidiary === "boolean"
+        ? record.is_foreign_subsidiary
+        : undefined;
+    const foreignEvidence =
+      typeof record.foreign_subsidiary_evidence === "string"
+        ? record.foreign_subsidiary_evidence
+        : null;
     out.push({
       id,
       score: clampScore(record.score),
@@ -365,6 +421,8 @@ export function parseScoringResponse(text: string): ScoreParseResult {
           ? record.reasoning
           : "(sin reasoning)",
       reasoning_fields_used: fieldsUsed,
+      is_foreign_subsidiary: isForeignSub,
+      foreign_subsidiary_evidence: foreignEvidence,
     });
   }
   return { ok: true, scored: out };

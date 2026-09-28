@@ -149,6 +149,29 @@ FIRMOGRAPHICS DÉBIL (T024, guard de dominio del backfill)
 - Si firmographics_domain_verified = true, los datos vienen
   verificados; sector_fit puede alcanzar 100 según encaje.
 
+FILIALES DE MATRICES EXTRANJERAS (T024, casos Stulz/Hosokawa reales)
+- Marca is_foreign_subsidiary = true si HAY evidencia textual de
+  que la empresa es una filial/subsidiaria española de un grupo
+  con sede en otro país. Señales:
+  · Nombre con "España", "Spain", "Ibérica", "Iberia" y matriz
+    detectable (Stulz España = matriz Stulz Alemania; Hosokawa
+    Alpine España = matriz Hosokawa Japón/Alemania).
+  · company_description que dice explícitamente "subsidiary of",
+    "part of the X group", "member of X worldwide", "filial de", etc.
+- La regla del ICP: las filiales NO deciden su propia web
+  (branding y presupuesto de web los fija la matriz), así que NO
+  son ICP aunque el sector y el tamaño encajen.
+- El gate mecánico del sistema capa el score global a 40 cuando
+  is_foreign_subsidiary=true. NO intentes bajar el número tú
+  mismo — sé honesto en el sub_scores y en el flag; el gate hace
+  su trabajo.
+- Si NO tienes evidencia clara, marca is_foreign_subsidiary=false
+  (regla anti-fabricación: sin texto = ausencia de señal). NO
+  infieras subsidiaria por el nombre solo si no hay matriz
+  identificable.
+- foreign_subsidiary_evidence: cita textual del nombre o de la
+  descripción que respalda el flag. Null si el flag es false.
+
 ICP OBJETIVO (inyectado desde icps.ts · scoringCriteria)
 
 Encaja el ICP si:
@@ -238,6 +261,8 @@ Mismo tamaño y orden que la entrada:
       "budget_signal": <int 0-100>
     },
     "fields_used": ["<campo1>", "<campo2>", ...],
+    "is_foreign_subsidiary": <bool>,
+    "foreign_subsidiary_evidence": "<cita del nombre o descripción>" | null,
     "reasoning": "<texto corto explicando el score>"
   }
 ]

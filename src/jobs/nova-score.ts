@@ -36,6 +36,7 @@ import {
   applyScoreMechanicalGates,
   buildLeadPayload,
   computeScoreUpdate,
+  isScoringReviewReason,
   parseScoringResponse,
   type LeadForScoring,
   type ScoredLead,
@@ -60,7 +61,7 @@ import {
   sweepStaleScoringClaims,
   type ClaimedLead,
 } from "@/lib/nova/claim";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
@@ -311,6 +312,8 @@ export const novaScore = inngest.createFunction(
             primaryDeciders: activeIcp.scoringCriteria?.primaryDeciders ?? [],
             secondaryDeciders:
               activeIcp.scoringCriteria?.secondaryDeciders ?? [],
+            foreignSubsidiaryMaxScore:
+              activeIcp.scoringCriteria?.foreignSubsidiaryMaxScore ?? 40,
           },
         );
         const gatedResult: ScoredLead = { ...result, score: gate.score };
@@ -327,7 +330,7 @@ export const novaScore = inngest.createFunction(
         if (decision.estado === "EN_RADAR") promoted += 1;
         if (decision.needs_review) flaggedReview += 1;
 
-        const reviewReasons = [
+        const scoringReviewReasons = [
           ...gate.needs_review_reasons,
           ...(decision.needs_review && gate.needs_review_reasons.length === 0
             ? [`low_score:${decision.icp_score}`]
@@ -338,23 +341,53 @@ export const novaScore = inngest.createFunction(
           lead.custom_fields && typeof lead.custom_fields === "object"
             ? (lead.custom_fields as Record<string, unknown>)
             : {};
+
+        // T024 fix (2026-09-28 post-rescore): review_reason del scoring
+        // anterior (low_score:32, sector_unknown, etc.) NO se limpiaba
+        // al re-puntuar. Nova ahora reemplaza SIEMPRE la parte "de
+        // scoring" (prefijos SCORING_REASON_PREFIXES) y preserva la
+        // parte "de pipeline" (generic_email, data_mismatch,
+        // unknown_legacy — puestos por el mapper o backfills).
+        const prevReasonRaw =
+          typeof existingCustom.review_reason === "string"
+            ? existingCustom.review_reason
+            : "";
+        const pipelineReasons = prevReasonRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .filter((p) => !isScoringReviewReason(p));
+        const mergedReasons = [...pipelineReasons, ...scoringReviewReasons];
+
+        // Si NO hay reasons (ni de scoring ni de pipeline), borrar
+        // la key entera (evita quedarse con string vacío en BD).
+        const nextCustom: Record<string, unknown> = {
+          ...existingCustom,
+          score_reasoning: decision.score_reasoning,
+          score_sub_scores: decision.sub_scores,
+          score_fields_used: result.reasoning_fields_used ?? [],
+          ...(gate.gated.length > 0 ? { score_gates: gate.gated } : {}),
+          ...(result.score !== gate.score
+            ? { score_raw_before_gates: result.score }
+            : {}),
+        };
+        if (mergedReasons.length > 0) {
+          nextCustom.review_reason = mergedReasons.join(",");
+        } else {
+          delete nextCustom.review_reason;
+        }
+
+        // needs_review final: true si hay reasons (de scoring o de
+        // pipeline), false si no. Coherente con el merge de arriba —
+        // un lead con generic_email persiste needs_review aunque el
+        // scoring nuevo sea alto.
+        const nextNeedsReview = mergedReasons.length > 0;
+
         const update: LeadUpdate = {
           icp_score: decision.icp_score,
           estado: decision.estado,
-          needs_review: decision.needs_review,
-          custom_fields: {
-            ...existingCustom,
-            score_reasoning: decision.score_reasoning,
-            score_sub_scores: decision.sub_scores,
-            score_fields_used: result.reasoning_fields_used ?? [],
-            ...(reviewReasons.length > 0
-              ? { review_reason: reviewReasons.join(",") }
-              : {}),
-            ...(gate.gated.length > 0 ? { score_gates: gate.gated } : {}),
-            ...(result.score !== gate.score
-              ? { score_raw_before_gates: result.score }
-              : {}),
-          },
+          needs_review: nextNeedsReview,
+          custom_fields: nextCustom as Json,
         };
 
         await step.run(`finalize-${batchIndex}-${lead.id}`, async () => {

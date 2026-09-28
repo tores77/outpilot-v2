@@ -92,6 +92,12 @@ export type IcpScoringCriteria = {
   // Score máximo permitido cuando el título coincide SOLO con
   // secondaryDeciders. Aplicado por gate mecánico en scoring.ts.
   secondaryMaxScore: number;
+  // Score máximo permitido cuando el modelo marca
+  // is_foreign_subsidiary=true. Motivación T024 (post-rescore):
+  // Stulz España 82, Hosokawa Alpine 80 — filiales de matrices
+  // extranjeras que no deciden su propia web. El gate mecánico
+  // capa aquí sin confiar en que Haiku baje el número.
+  foreignSubsidiaryMaxScore: number;
   // Señales positivas verificables que sugieren fit (ej: "exporta",
   // "compite con italianos"). Se citan como bullets para orientar al
   // modelo, sin ser reglas duras.
@@ -227,7 +233,7 @@ const industrialPremiumEs_scoringCriteria: IcpScoringCriteria = {
   excludes: [
     "e-commerce puro sin producto propio fabricado",
     "marketplaces",
-    "filiales de multinacionales extranjeras",
+    "filial española de un grupo con sede fuera de España (nombre con España/Spain/Ibérica/Iberia + matriz extranjera, o descripción que indique subsidiaria): NO es ICP porque la web la decide la matriz. Cap 40, review_reason='foreign_subsidiary'",
     "servicios profesionales (consultoría, abogados, auditoría)",
     "distribuidores sin fabricación",
   ],
@@ -244,6 +250,7 @@ const industrialPremiumEs_scoringCriteria: IcpScoringCriteria = {
   ],
   secondaryDeciders: ["CFO", "COO", "director financiero", "director de operaciones"],
   secondaryMaxScore: 65,
+  foreignSubsidiaryMaxScore: 40,
   positiveSignals: [
     "web multiidioma (indica intención exportadora)",
     "catálogo técnico de producto propio",

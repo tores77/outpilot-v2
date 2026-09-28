@@ -26,14 +26,41 @@
 
 set search_path = public;
 
+-- T024 fix (2026-09-28 post-rescore): antes solo reseteaba
+-- icp_score/scoring_claimed_at/scoring_error/estado. La bandera
+-- needs_review y custom_fields.review_reason del scoring anterior
+-- (p.ej. "low_score:32") persistían y descuadraban la UI (Stulz
+-- con icp_score 82 pero review_reason low_score:32).
+--
+-- Reglas del reset de banderas:
+--   - needs_review → false SOLO si el motivo actual empieza por
+--     "low_score:" (motivo del scoring anterior). Los motivos de
+--     pipeline (generic_email, data_mismatch, unknown_legacy) se
+--     conservan porque no dependen del score.
+--   - custom_fields.review_reason → borrado bajo la misma condición.
+--
+-- El re-scoring que vendrá después regenera review_reason con los
+-- motivos del scoring NUEVO (low_score:<N nuevo>, sector_unknown,
+-- firmographics_domain_unverified:65, secondary_decider_cap:65,
+-- foreign_subsidiary…) — ver src/lib/nova/scoring.ts:isScoringReviewReason.
+
 update leads
 set icp_score = null,
     scoring_claimed_at = null,
     scoring_error = null,
-    estado = case when estado = 'EN_RADAR' then 'NUEVO' else estado end
+    estado = case when estado = 'EN_RADAR' then 'NUEVO' else estado end,
+    needs_review = case
+      when custom_fields->>'review_reason' like 'low_score:%' then false
+      else needs_review
+    end,
+    custom_fields = case
+      when custom_fields->>'review_reason' like 'low_score:%'
+        then custom_fields - 'review_reason'
+      else custom_fields
+    end
 where source = 'vibe_prospecting'
   and icp_score is not null
   and id not in (
     select lead_id from campaign_leads where removed_at is null
   )
-returning id, company, sector, estado;
+returning id, company, sector, estado, needs_review;
