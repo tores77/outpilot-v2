@@ -57,19 +57,47 @@ const balBefore = await (
 ).json();
 console.log(`[backfill] saldo Vibe: ${balBefore.remaining_credits} de ${balBefore.allocated_credits}`);
 
-// 2. Leads sin sector con business_id.
-//    T024 fix (2026-09-28): SELECT también trae website y email —
-//    antes solo id/company/sector/custom_fields, y el guard de
-//    dominio se quedaba sin lead_domain para comparar → los 114
-//    del backfill anterior salieron todos como "unverified".
-const { data: leads, error } = await supabase
+// 2. Leads elegibles.
+//    T024 fix (2026-09-28 re-run): antes filtraba SELECT por
+//    sector IS NULL, pero el primer backfill ya lo rellenó para los
+//    114 → re-run devolvió 0. Nuevo criterio: sector NULL OR
+//    firmographics_vibe_website NULL. Duplica la lógica de
+//    src/lib/vibe/backfill-criteria.ts (script self-contained; los
+//    tests de esa función son la fuente de verdad).
+function classifyEligibility(lead) {
+  const sectorMissing =
+    lead.sector == null || (typeof lead.sector === "string" && lead.sector.trim() === "");
+  const vibeWebsite = (lead.custom_fields ?? {})["firmographics_vibe_website"];
+  const vibeMissing =
+    vibeWebsite == null ||
+    (typeof vibeWebsite === "string" && vibeWebsite.trim() === "");
+  if (sectorMissing && vibeMissing) return "both";
+  if (sectorMissing) return "sector_missing";
+  if (vibeMissing) return "vibe_website_missing";
+  return null;
+}
+
+const { data: allLeads, error } = await supabase
   .from("leads")
   .select("id, company, sector, website, email, custom_fields")
-  .eq("source", "vibe_prospecting")
-  .is("sector", null);
+  .eq("source", "vibe_prospecting");
 if (error) throw new Error(`select failed: ${error.message}`);
 
-console.log(`[backfill] leads vibe_prospecting con sector NULL: ${leads?.length ?? 0}`);
+const breakdown = { sector_missing: 0, vibe_website_missing: 0, both: 0 };
+const leads = [];
+for (const l of allLeads ?? []) {
+  const reason = classifyEligibility(l);
+  if (reason) {
+    breakdown[reason] += 1;
+    leads.push(l);
+  }
+}
+console.log(`[backfill] leads vibe_prospecting: total=${allLeads?.length ?? 0}`);
+console.log(`[backfill] elegibles (le falta al menos un campo que este script persiste):`);
+console.log(`  sector faltante: ${breakdown.sector_missing}`);
+console.log(`  firmographics_vibe_website faltante: ${breakdown.vibe_website_missing}`);
+console.log(`  ambos faltan: ${breakdown.both}`);
+console.log(`  total elegibles: ${leads.length}`);
 
 // 3. Business_ids únicos
 const leadsByBid = new Map();
