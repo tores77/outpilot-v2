@@ -41,7 +41,8 @@ import {
   LEX_SYSTEM_PROMPT,
   type LeadForLex,
 } from "@/lib/lex/prompt";
-import { applyFieldGate, parseLexResponse } from "@/lib/lex/response";
+import { applyFieldGate } from "@/lib/lex/response";
+import { callLexWithGuardRetry } from "@/lib/lex/retry";
 import { fetchWebsiteSummary, type WebsiteSummary } from "@/lib/lex/website";
 import {
   claimPendingLeads,
@@ -327,27 +328,59 @@ async function processLead(
     const fieldMap = buildLeadFieldMap(leadForLex);
     const userPrompt = buildUserPrompt(leadForLex);
 
-    // 3. Haiku via wrapper (registra api_costs).
-    const claudeResult = await callClaude({
-      task: "lex.personalize",
-      tenantId,
-      system: LEX_SYSTEM_PROMPT,
-      maxTokens: LEX_MAX_TOKENS,
-      messages: [{ role: "user", content: userPrompt }],
+    // 3. Haiku via wrapper con retry-on-guard-reject (T024 2026-09-28).
+    // Si el guard determinista rechaza el opener, reintentamos UNA
+    // vez con el motivo del rechazo añadido al userPrompt. Máximo
+    // 2 llamadas por lead.
+    const lexResult = await callLexWithGuardRetry({
+      userPrompt,
+      callClaudeFn: async (up) => {
+        const r = await callClaude({
+          task: "lex.personalize",
+          tenantId,
+          system: LEX_SYSTEM_PROMPT,
+          maxTokens: LEX_MAX_TOKENS,
+          messages: [{ role: "user", content: up }],
+        });
+        if (!r.ok) return { ok: false, code: r.code, error: r.error };
+        return {
+          ok: true,
+          text: r.text,
+          usage: {
+            model: r.usage.model,
+            inputTokens: r.usage.inputTokens,
+            outputTokens: r.usage.outputTokens,
+            costUsd: r.usage.costUsd,
+          },
+        };
+      },
     });
 
-    if (!claudeResult.ok) {
+    if (!lexResult.ok) {
       return {
         kind: "error",
         websiteFetched,
         websiteCached,
-        error: `${claudeResult.code}: ${claudeResult.error}`,
+        error: `${lexResult.code}: ${lexResult.error}`,
       };
     }
 
-    // 4. Parse + gate mecánico.
-    const parsedResponse = parseLexResponse(claudeResult.text);
-    const gated = applyFieldGate(parsedResponse, fieldMap);
+    // 4. Gate mecánico anti-fabricación de fields_used (regla existente).
+    // parseLexResponse ya se aplicó dentro del retry helper.
+    const gated = applyFieldGate(lexResult.parsed, fieldMap);
+
+    // Agregar tokens de todos los intentos (1 o 2). Model del último
+    // (los intentos usan el mismo model — TASK_MODEL["lex.personalize"]).
+    const totalUsage = lexResult.usages.reduce(
+      (acc, u) => ({
+        inputTokens: acc.inputTokens + u.inputTokens,
+        outputTokens: acc.outputTokens + u.outputTokens,
+        costUsd: acc.costUsd + u.costUsd,
+      }),
+      { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    );
+    const modelUsed =
+      lexResult.usages[lexResult.usages.length - 1]?.model ?? "unknown";
 
     // 5. Finalize con doble guard (state='processing' + started_at).
     const finalPayload = {
@@ -357,7 +390,8 @@ async function processLead(
       fields_used: gated.fields_used,
       company_display: gated.company_display,
       reason_if_generic: gated.reason_if_generic,
-      model: claudeResult.usage.model,
+      lex_attempts: lexResult.attempts,
+      model: modelUsed,
       generated_at: new Date().toISOString(),
     };
 
@@ -378,11 +412,7 @@ async function processLead(
       kind: gated.personalization === "personalized" ? "personalized" : "generic",
       websiteFetched,
       websiteCached,
-      usage: {
-        inputTokens: claudeResult.usage.inputTokens,
-        outputTokens: claudeResult.usage.outputTokens,
-        costUsd: claudeResult.usage.costUsd,
-      },
+      usage: totalUsage,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

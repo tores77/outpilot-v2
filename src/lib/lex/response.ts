@@ -100,8 +100,10 @@ export function sanitizeOpenerStyle(opener: string): string {
  * positivos van a fallback — coste bajo comparado con dejar pasar
  * openers que compiten con el cuerpo.
  */
+// T024 (2026-09-28 gate ampliado): añadidas "me pregunto" y
+// "debe de ser" tras revisión del CSV eval del smoke.
 const FORBIDDEN_PATTERN =
-  /[?¿]|\b(web|visibilidad|imagino|requiere|debe ser)\b|\bme (preguntaba|gustar[íi]a|interesa)\b/i;
+  /[?¿]|\b(web|visibilidad|imagino|requiere|debe ser|debe de ser)\b|\bme (preguntaba|pregunto|gustar[íi]a|interesa)\b/i;
 
 const OPENER_GUARD_MIN_LENGTH = 60;
 

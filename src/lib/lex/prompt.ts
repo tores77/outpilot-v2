@@ -29,11 +29,11 @@ REGLAS DE FABRICACIÓN (INEGOCIABLES, léelas primero):
 12. El opener es UNA observación verificable y nada más. PROHIBIDO:
     - Preguntas (nada de "?" ni "¿", ni retóricas).
     - Mencionar "web" o "visibilidad".
-    - Palabras "imagino", "me preguntaba", "me gustaría", "me interesa", "requiere", "debe ser".
+    - Palabras "imagino", "me preguntaba", "me pregunto", "me gustaría", "me interesa", "requiere", "debe ser", "debe de ser".
     - Cualquier valoración de lo que la empresa necesita.
     El cuerpo del correo ya lleva el diagnóstico y la pregunta; tu opener añade SOLO la observación.
 
-    Un guard determinista del sistema recorta la segunda cláusula si ve alguno de esos patrones (a partir del primer "." o ";") y, si tras el recorte sigue habiendo prohibidos o queda < 60 caracteres, marca opener_rejected y usa fallback. NO intentes esquivarlo: escribe una sola oración observacional.
+    Un guard determinista del sistema recorta la segunda cláusula si ve alguno de esos patrones (a partir del primer "." o ";") y, si tras el recorte sigue habiendo prohibidos o queda < 60 caracteres, marca opener_rejected y el sistema reintenta UNA vez añadiendo el motivo al prompt. Si el segundo intento también se rechaza, fallback y fields_used incluye "opener_rejected_x2". NO intentes esquivarlo: escribe una sola oración observacional.
 
     Ejemplos negativos reales del smoke 2026-09-28 y cómo deberían haberse escrito (o cómo el guard los recorta):
 
