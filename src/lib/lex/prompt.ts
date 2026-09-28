@@ -26,6 +26,30 @@ REGLAS DE FABRICACIÓN (INEGOCIABLES, léelas primero):
     - Si el campo company ya tiene capitalización razonable (mezclada), cópialo tal cual.
     - Si no hay ni company ni website_summary con nombre, devuelve null.
     Este campo NO entra en fields_used (no es una decisión de personalización, es un dato factual sobre el nombre).
+12. El opener es UNA observación verificable y nada más. PROHIBIDO:
+    - Preguntas (nada de "?" ni "¿", ni retóricas).
+    - Mencionar "web" o "visibilidad".
+    - Palabras "imagino", "me preguntaba", "me gustaría", "me interesa", "requiere", "debe ser".
+    - Cualquier valoración de lo que la empresa necesita.
+    El cuerpo del correo ya lleva el diagnóstico y la pregunta; tu opener añade SOLO la observación.
+
+    Un guard determinista del sistema recorta la segunda cláusula si ve alguno de esos patrones (a partir del primer "." o ";") y, si tras el recorte sigue habiendo prohibidos o queda < 60 caracteres, marca opener_rejected y usa fallback. NO intentes esquivarlo: escribe una sola oración observacional.
+
+    Ejemplos negativos reales del smoke 2026-09-28 y cómo deberían haberse escrito (o cómo el guard los recorta):
+
+    a) Palinox (fabricantes de túneles de congelación):
+       INCORRECTO: "Veo que en Palinox diseñáis túneles de congelación industrial especializados en pescado y marisco desde hace más de 40 años; imagino que vuestra web actual no refleja toda la complejidad de vuestro catálogo de máquinas."
+       CORRECTO:   "Veo que en Palinox diseñáis túneles de congelación industrial especializados en pescado y marisco desde hace más de 40 años."
+
+    b) Fluytec (sistemas de desalinización):
+       INCORRECTO: "Veo que en Fluytec diseñáis sistemas de desalinización y tratamiento de agua a medida para sectores industriales específicos. ¿cómo gestionáis hoy la captación de proyectos nuevos en vuestros mercados clave?"
+       CORRECTO:   "Veo que en Fluytec diseñáis sistemas de desalinización y tratamiento de agua a medida para sectores industriales específicos."
+
+    c) Senttix (colchones alta gama):
+       INCORRECTO: "Veo que en Senttix apostáis por colchones de alta gama con un enfoque en sostenibilidad y materiales naturales, ese posicionamiento premium en un sector tan competitivo requiere una web que comunique esa diferencia."
+       CORRECTO:   "Veo que en Senttix apostáis por colchones de alta gama con un enfoque en sostenibilidad y materiales naturales."
+
+13. Segunda fuente de contexto: además de website_summary, ahora recibes vibe_description cuando existe (descripción de la empresa persistida por el enrich firmographics de Vibe). Úsala como fuente EQUIVALENTE a website_summary a efectos de escribir observaciones verificables. En fields_used cita "vibe_description" si la usaste. La preferencia natural sigue siendo website_summary (más fresco); vibe_description es fallback cuando el scrape de web falla.
 
 FORMATO DE RESPUESTA (JSON, sin markdown fences):
 {
@@ -51,6 +75,12 @@ export type LeadForLex = {
   website?: string | null;
   linkedin?: string | null;
   websiteSummary?: WebsiteSummary | null;
+  // T024 (eval smoke 2026-09-28): segunda fuente cuando
+  // website_summary falla o está vacío. Viene de
+  // leads.custom_fields.company_description (poblado por el enrich
+  // firmographics de Vibe). Nombre de campo en fields_used:
+  // "vibe_description".
+  vibeDescription?: string | null;
 };
 
 /**
@@ -78,6 +108,7 @@ export function buildLeadFieldMap(lead: LeadForLex): Record<string, string> {
   if (ws && ws.status === "ok" && ws.summary.trim().length > 0) {
     map["website_summary"] = ws.summary.trim();
   }
+  put("vibe_description", lead.vibeDescription);
   return map;
 }
 

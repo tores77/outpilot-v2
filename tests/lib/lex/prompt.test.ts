@@ -155,3 +155,50 @@ describe("buildUserPrompt", () => {
     expect(parsed.lead).toEqual({ firstName: "Alice" });
   });
 });
+
+// ============================================================
+// T024 (2026-09-28): vibe_description como segunda fuente cuando
+// website_summary falla o está vacío.
+// ============================================================
+
+describe("buildLeadFieldMap — vibe_description (T024 segunda fuente)", () => {
+  it("lead sin website_summary pero con vibeDescription → fieldMap incluye vibe_description", () => {
+    const map = buildLeadFieldMap({
+      firstName: "Ana",
+      company: "Acme",
+      sector: "furniture manufacturing",
+      vibeDescription:
+        "Acme SL, spanish manufacturer of premium office furniture since 1985.",
+    });
+    expect(map.vibe_description).toContain("spanish manufacturer");
+    expect(map).not.toHaveProperty("website_summary");
+  });
+
+  it("lead con vibeDescription vacío/whitespace/null → NO se añade al fieldMap", () => {
+    expect(
+      buildLeadFieldMap({ firstName: "Ana", vibeDescription: "" }),
+    ).not.toHaveProperty("vibe_description");
+    expect(
+      buildLeadFieldMap({ firstName: "Ana", vibeDescription: "   " }),
+    ).not.toHaveProperty("vibe_description");
+    expect(
+      buildLeadFieldMap({ firstName: "Ana", vibeDescription: null }),
+    ).not.toHaveProperty("vibe_description");
+  });
+
+  it("con websiteSummary Y vibeDescription: ambos disponibles (Haiku elige)", () => {
+    const map = buildLeadFieldMap({
+      firstName: "Ana",
+      company: "Acme",
+      websiteSummary: {
+        url: "https://acme.com",
+        status: "ok",
+        fetched_at: "2026-09-28T10:00:00Z",
+        summary: "web scrape summary here",
+      },
+      vibeDescription: "vibe firmographics description here",
+    });
+    expect(map.website_summary).toBeDefined();
+    expect(map.vibe_description).toBeDefined();
+  });
+});

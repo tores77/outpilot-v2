@@ -75,6 +75,70 @@ export function sanitizeOpenerStyle(opener: string): string {
 }
 
 /**
+ * Guard determinista del contenido del opener (regla 12 del prompt,
+ * eval set del smoke 2026-09-28: 16/47 openers con segunda cláusula
+ * que "pisaba el cuerpo del email" — hacían preguntas, mencionaban
+ * "web"/"visibilidad", o valoraban lo que la empresa "requiere").
+ *
+ * Palabras/patrones prohibidos:
+ *   - "?" / "¿" (opener nunca es pregunta; el cuerpo ya la tiene)
+ *   - "web", "visibilidad"
+ *   - "imagino", "me preguntaba", "me gustaría", "me interesa",
+ *     "requiere", "debe ser"
+ *
+ * Comportamiento:
+ *   1. Si NO hay prohibidos → devuelve el opener tal cual.
+ *   2. Si hay prohibidos → intenta recortar a la primera oración
+ *      (hasta el primer "." o ";" inclusive).
+ *   3. Tras el recorte, re-verifica:
+ *      - Si sigue conteniendo prohibidos O queda < 60 caracteres
+ *        → rejected (caller cae a fallback + marca reason
+ *          'opener_rejected_by_guard:<detalle>').
+ *
+ * Pere pidió detección estricta: cualquier match del patrón dispara
+ * el recorte, aunque el opener sea aceptable a ojo humano. Falsos
+ * positivos van a fallback — coste bajo comparado con dejar pasar
+ * openers que compiten con el cuerpo.
+ */
+const FORBIDDEN_PATTERN =
+  /[?¿]|\b(web|visibilidad|imagino|requiere|debe ser)\b|\bme (preguntaba|gustar[íi]a|interesa)\b/i;
+
+const OPENER_GUARD_MIN_LENGTH = 60;
+
+export type OpenerGuardResult =
+  | { rejected: false; opener: string; trimmed: boolean }
+  | { rejected: true; reason: string };
+
+export function guardOpenerContent(opener: string): OpenerGuardResult {
+  const raw = opener.trim();
+  if (!FORBIDDEN_PATTERN.test(raw)) {
+    return { rejected: false, opener: raw, trimmed: false };
+  }
+  // Recorta a la primera oración (hasta primer "." o ";" inclusive).
+  const firstBreak = raw.search(/[.;]/);
+  const candidate =
+    firstBreak >= 0 ? raw.slice(0, firstBreak + 1).trim() : raw;
+
+  if (candidate.length < OPENER_GUARD_MIN_LENGTH) {
+    return {
+      rejected: true,
+      reason: `opener_rejected_by_guard:too_short_after_trim(${candidate.length})`,
+    };
+  }
+  if (FORBIDDEN_PATTERN.test(candidate)) {
+    return {
+      rejected: true,
+      reason: "opener_rejected_by_guard:forbidden_pattern_persists",
+    };
+  }
+  return {
+    rejected: false,
+    opener: candidate,
+    trimmed: candidate.length < raw.length,
+  };
+}
+
+/**
  * Intenta parsear el JSON crudo devuelto por Haiku. Tolera fences
  * markdown (```json ... ```), texto antes/después y variantes de
  * espacios. Si nada encaja, devuelve un LexResponse "generic" con
@@ -96,9 +160,29 @@ export function parseLexResponse(raw: string): LexResponse {
       `parse_failed_schema: ${check.error.issues[0]?.message ?? "unknown"}`,
     );
   }
-  // Sanitiza el opener antes de devolver: cualquier caller (incluido
-  // applyFieldGate) opera sobre la versión canónica sin tics.
-  return { ...check.data, opener: sanitizeOpenerStyle(check.data.opener) };
+  // Sanitiza el opener + aplica el guard de contenido (regla 12):
+  //   1. sanitizeOpenerStyle → tipografía (em-dash, comillas, etc.)
+  //   2. guardOpenerContent  → recorta segunda cláusula o rechaza si
+  //      contiene palabras prohibidas/preguntas que "pisan" el cuerpo.
+  // Solo se aplica cuando personalization="personalized" (el generic
+  // ya tiene opener vacío).
+  const sanitized = sanitizeOpenerStyle(check.data.opener);
+  if (check.data.personalization !== "personalized") {
+    return { ...check.data, opener: sanitized };
+  }
+  const guarded = guardOpenerContent(sanitized);
+  if (guarded.rejected) {
+    // Degrade a generic pero preserva company_display (dato factual
+    // sobre el nombre de la empresa, independiente del opener).
+    return {
+      opener: "",
+      personalization: "generic",
+      fields_used: check.data.fields_used,
+      company_display: check.data.company_display,
+      reason_if_generic: guarded.reason,
+    };
+  }
+  return { ...check.data, opener: guarded.opener };
 }
 
 function stripMarkdownFences(text: string): string {

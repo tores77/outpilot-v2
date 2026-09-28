@@ -96,6 +96,14 @@ function readCachedWebsiteSummary(
   return ws as WebsiteSummary;
 }
 
+function readVibeDescription(customFields: unknown): string | null {
+  if (!customFields || typeof customFields !== "object") return null;
+  const raw = (customFields as Record<string, unknown>).company_description;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function leadForLexFromRow(
   lead: LeadRow,
   websiteSummary: WebsiteSummary | null,
@@ -111,6 +119,10 @@ function leadForLexFromRow(
     website: lead.website,
     linkedin: lead.linkedin_url,
     websiteSummary,
+    // T024 (eval smoke 2026-09-28): fallback cuando website_summary
+    // está vacío o falla el scrape. custom_fields.company_description
+    // viene del enrich firmographics de Vibe (migration 007).
+    vibeDescription: readVibeDescription(lead.custom_fields),
   };
 }
 

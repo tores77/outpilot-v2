@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyFieldGate,
+  guardOpenerContent,
   parseLexResponse,
   sanitizeOpenerStyle,
 } from "@/lib/lex/response";
@@ -261,5 +262,158 @@ describe("applyFieldGate — mecánico anti-fabricación", () => {
     );
     expect(r.personalization).toBe("generic");
     expect(r.reason_if_generic).toBe("personalized_without_fields_used");
+  });
+});
+
+// ============================================================
+// T024 (2026-09-28 eval smoke): guard determinista del contenido
+// del opener. Casos reales extraídos de los 16 openers con
+// "segunda cláusula que pisa el cuerpo" del CSV eval.
+// ============================================================
+
+describe("guardOpenerContent — recorte de segunda cláusula (T024)", () => {
+  it("opener limpio sin patrones prohibidos → devuelve tal cual, no trimmed", () => {
+    const clean =
+      "Veo que en Intarcon diseñáis unidades de refrigeración industrial autoportantes.";
+    const r = guardOpenerContent(clean);
+    expect(r.rejected).toBe(false);
+    if (!r.rejected) {
+      expect(r.opener).toBe(clean);
+      expect(r.trimmed).toBe(false);
+    }
+  });
+
+  it("REGRESIÓN Palinox: 'imagino' + 'web' tras ';' → recorta a la primera oración", () => {
+    // Opener real capturado del smoke: contiene "imagino" tras ";"
+    // que "pisa el cuerpo". Recorte al ";" deja la primera cláusula
+    // limpia y > 60 chars.
+    const real =
+      "Veo que en Palinox diseñáis túneles de congelación industrial especializados en pescado y marisco desde hace más de 40 años; imagino que vuestra web actual no refleja toda la complejidad de vuestro catálogo de máquinas.";
+    const r = guardOpenerContent(real);
+    expect(r.rejected).toBe(false);
+    if (!r.rejected) {
+      expect(r.opener).toBe(
+        "Veo que en Palinox diseñáis túneles de congelación industrial especializados en pescado y marisco desde hace más de 40 años;",
+      );
+      expect(r.trimmed).toBe(true);
+    }
+  });
+
+  it("REGRESIÓN Fluytec: '?' + pregunta tras '.' → recorta a la primera oración", () => {
+    const real =
+      "Veo que en Fluytec diseñáis sistemas de desalinización y tratamiento de agua a medida para sectores industriales específicos. ¿cómo gestionáis hoy la captación de proyectos nuevos en vuestros mercados clave?";
+    const r = guardOpenerContent(real);
+    expect(r.rejected).toBe(false);
+    if (!r.rejected) {
+      expect(r.opener).toBe(
+        "Veo que en Fluytec diseñáis sistemas de desalinización y tratamiento de agua a medida para sectores industriales específicos.",
+      );
+      expect(r.trimmed).toBe(true);
+    }
+  });
+
+  it("REGRESIÓN Senttix: 'requiere' + 'web' sin '.' ni ';' → sin dónde recortar, rejected", () => {
+    // El opener real no tiene punto ni punto-y-coma antes de la
+    // segunda cláusula con "requiere" y "web". El guard no puede
+    // recortar limpio → rejected → fallback.
+    const real =
+      "Veo que en Senttix apostáis por colchones de alta gama con un enfoque en sostenibilidad y materiales naturales, ese posicionamiento premium en un sector tan competitivo requiere una web que comunique esa diferencia.";
+    const r = guardOpenerContent(real);
+    expect(r.rejected).toBe(true);
+    if (r.rejected) {
+      expect(r.reason).toContain("opener_rejected_by_guard");
+    }
+  });
+
+  it("< 60 chars tras el recorte → rejected", () => {
+    const short = "Veo que trabajáis con ? algo mal aquí.";
+    const r = guardOpenerContent(short);
+    expect(r.rejected).toBe(true);
+    if (r.rejected) {
+      expect(r.reason).toContain("too_short_after_trim");
+    }
+  });
+
+  it("cada palabra prohibida por separado dispara el guard", () => {
+    const cases = [
+      "Vi vuestra web y me pareció mejorable en algunos apartados obvios.",
+      "Tenéis un problema de visibilidad claro que se puede resolver en poco tiempo.",
+      "Imagino que estáis buscando renovar la marca con un enfoque nuevo y actual ahora.",
+      "El posicionamiento premium requiere presencia digital coherente y bien construida.",
+      "Vuestro producto debe ser más visible en canales digitales de forma continuada.",
+      "Me preguntaba si estáis abiertos a mejorar la experiencia digital de vuestra marca.",
+      "Me gustaría mostrar cómo otras marcas del sector han renovado su presencia digital.",
+      "Me interesa saber cómo trabajáis la parte digital de vuestro negocio a día de hoy.",
+    ];
+    for (const c of cases) {
+      const r = guardOpenerContent(c);
+      // Todos son "oración única con prohibido" → tras recorte sigue
+      // conteniendo el prohibido → rejected.
+      expect(r.rejected, `caso: ${c.slice(0, 40)}...`).toBe(true);
+    }
+  });
+
+  it("interrogación tanto '?' como '¿' cuentan como prohibidas", () => {
+    const q1 =
+      "Veo que fabricáis maquinaria industrial premium para sectores muy exigentes en Europa.¿algún proyecto reciente que os interese destacar?";
+    const q2 =
+      "Veo que fabricáis maquinaria industrial premium para sectores muy exigentes en Europa. algún proyecto reciente que os interese destacar?";
+    // Ambos: recorte en "." → primera oración sin prohibido → OK.
+    for (const q of [q1, q2]) {
+      const r = guardOpenerContent(q);
+      expect(r.rejected).toBe(false);
+      if (!r.rejected) {
+        expect(r.opener.startsWith("Veo que fabricáis")).toBe(true);
+        expect(r.opener).not.toContain("?");
+        expect(r.opener).not.toContain("¿");
+      }
+    }
+  });
+
+  it("parseLexResponse integra el guard: opener con prohibido tras ';' se recorta", () => {
+    const raw = JSON.stringify({
+      opener:
+        "Veo que en Palinox diseñáis túneles de congelación industrial especializados en pescado y marisco desde hace más de 40 años; imagino que vuestra web actual no refleja toda la complejidad de vuestro catálogo de máquinas.",
+      personalization: "personalized",
+      fields_used: ["company", "website_summary"],
+      company_display: "Palinox",
+      reason_if_generic: null,
+    });
+    const r = parseLexResponse(raw);
+    expect(r.personalization).toBe("personalized");
+    expect(r.opener).toContain("Palinox diseñáis túneles");
+    expect(r.opener).not.toContain("imagino");
+    expect(r.opener).not.toContain("web");
+  });
+
+  it("parseLexResponse integra el guard: opener sin dónde recortar → degrade a generic", () => {
+    const raw = JSON.stringify({
+      opener:
+        "Veo que en Senttix apostáis por colchones de alta gama con un enfoque en sostenibilidad y materiales naturales, ese posicionamiento premium en un sector tan competitivo requiere una web que comunique esa diferencia.",
+      personalization: "personalized",
+      fields_used: ["company", "website_summary"],
+      company_display: "Senttix",
+      reason_if_generic: null,
+    });
+    const r = parseLexResponse(raw);
+    expect(r.personalization).toBe("generic");
+    expect(r.opener).toBe("");
+    expect(r.reason_if_generic).toContain("opener_rejected_by_guard");
+    // company_display se preserva incluso en degrade (regla T024
+    // company_display es factual, no depende del opener).
+    expect(r.company_display).toBe("Senttix");
+  });
+
+  it("parseLexResponse NO aplica guard cuando personalization=generic (opener ya vacío)", () => {
+    const raw = JSON.stringify({
+      opener: "",
+      personalization: "generic",
+      fields_used: [],
+      company_display: null,
+      reason_if_generic: "no_signal",
+    });
+    const r = parseLexResponse(raw);
+    expect(r.personalization).toBe("generic");
+    expect(r.reason_if_generic).toBe("no_signal");
   });
 });
