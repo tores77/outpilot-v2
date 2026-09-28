@@ -123,6 +123,52 @@ export function rootDomain(url: string | null | undefined): string | null {
   }
 }
 
+/**
+ * Extrae el dominio de un email corporativo (parte después del @).
+ * Devuelve null si no es un email parseable o si el dominio es
+ * genérico (gmail/hotmail/yahoo/etc — no representa a la empresa
+ * y usarlo como fallback contamina el guard de coherencia).
+ */
+const GENERIC_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
+  "gmail.com",
+  "hotmail.com",
+  "yahoo.com",
+  "outlook.com",
+  "live.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "protonmail.com",
+  "proton.me",
+  "mail.com",
+  "zoho.com",
+  "yandex.com",
+  "gmx.com",
+]);
+
+export function emailDomain(email: string | null | undefined): string | null {
+  if (!email || typeof email !== "string") return null;
+  const at = email.trim().toLowerCase().indexOf("@");
+  if (at <= 0 || at === email.length - 1) return null;
+  const domain = email.trim().toLowerCase().slice(at + 1);
+  if (GENERIC_EMAIL_DOMAINS.has(domain)) return null;
+  return domain;
+}
+
+/**
+ * Dominio efectivo del lead para el guard de coherencia: prefiere
+ * website si existe; si no, cae al dominio del email corporativo
+ * (siempre que no sea gmail/hotmail/etc). Esto cubre el caso real
+ * del backfill 2026-09-25 donde el SELECT del script no traía
+ * website y los 114 leads acabaron como "unverified".
+ */
+export function leadDomainForGuard(lead: {
+  website?: string | null;
+  email?: string | null;
+}): string | null {
+  return rootDomain(lead.website) ?? emailDomain(lead.email);
+}
+
 export type FirmographicsMergeResult = {
   draft: LeadDraft;
   // Si el enrich devolvió website y NO coincide con lead.website
@@ -161,8 +207,20 @@ export function mergeBusinessFirmographics(
   draft: LeadDraft,
   business: VibeBusinessData,
 ): FirmographicsMergeResult {
-  const leadDomain = rootDomain(draft.website);
+  // T024 fix backfill: si el lead no tiene website, cae al dominio
+  // del email corporativo (leadDomainForGuard). Antes solo miraba
+  // draft.website y en el backfill del 25-sept el SELECT no lo
+  // traía → 114 leads quedaron unverified.
+  const leadDomain = leadDomainForGuard({
+    website: draft.website,
+    email: draft.email,
+  });
   const vibeDomain = rootDomain(business.website);
+
+  // Lección T024 §Integraciones: persistir siempre el website que
+  // devuelve Vibe. Nos costó un backfill entero descubrirlo — el
+  // reverify script (sin coste) depende de tener este dato en BD.
+  const vibeWebsiteRaw = pickString(business.website);
 
   // Caso B: mismatch verificable → NO persistimos firmographics.
   if (leadDomain && vibeDomain && leadDomain !== vibeDomain) {
@@ -172,6 +230,7 @@ export function mergeBusinessFirmographics(
       lead_domain: leadDomain,
     });
     custom.firmographics_domain_verified = "false";
+    if (vibeWebsiteRaw) custom.firmographics_vibe_website = vibeWebsiteRaw;
     return {
       draft: { ...draft, custom_fields: custom },
       mismatch: { vibe_domain: vibeDomain, lead_domain: leadDomain },
@@ -190,6 +249,7 @@ export function mergeBusinessFirmographics(
   if (revenue) custom.company_revenue = revenue;
   const naics = pickString(business.naics_description);
   if (naics) custom.naics_description = naics;
+  if (vibeWebsiteRaw) custom.firmographics_vibe_website = vibeWebsiteRaw;
 
   const sectorFromBusiness = pickString(business.linkedin_industry_category);
   const nextSector = draft.sector ?? sectorFromBusiness;

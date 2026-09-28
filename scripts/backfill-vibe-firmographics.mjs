@@ -57,10 +57,14 @@ const balBefore = await (
 ).json();
 console.log(`[backfill] saldo Vibe: ${balBefore.remaining_credits} de ${balBefore.allocated_credits}`);
 
-// 2. Leads sin sector con business_id
+// 2. Leads sin sector con business_id.
+//    T024 fix (2026-09-28): SELECT también trae website y email —
+//    antes solo id/company/sector/custom_fields, y el guard de
+//    dominio se quedaba sin lead_domain para comparar → los 114
+//    del backfill anterior salieron todos como "unverified".
 const { data: leads, error } = await supabase
   .from("leads")
-  .select("id, company, sector, custom_fields")
+  .select("id, company, sector, website, email, custom_fields")
   .eq("source", "vibe_prospecting")
   .is("sector", null);
 if (error) throw new Error(`select failed: ${error.message}`);
@@ -106,17 +110,34 @@ let mismatchLeads = 0;
 let verifiedLeads = 0;
 let unverifiedLeads = 0;
 
-// Helper: extrae hostname raíz (sin protocolo, sin www, lowercase).
-// Duplica la lógica de src/lib/vibe/mapper.ts:rootDomain para que el
-// script sea self-contained (no requiere tsx / build).
+// Helpers duplicados de src/lib/vibe/mapper.ts (script self-contained,
+// no requiere tsx). Si cambian ahí, sincronizar aquí a mano.
 function rootDomain(url) {
   if (!url || typeof url !== "string" || url.trim() === "") return null;
+  const raw = url.trim();
+  const hasScheme = /^https?:\/\//i.test(raw);
   try {
-    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const u = new URL(hasScheme ? raw : `https://${raw}`);
     return u.hostname.replace(/^www\./i, "").toLowerCase();
   } catch {
     return null;
   }
+}
+const GENERIC_EMAIL_DOMAINS = new Set([
+  "gmail.com", "hotmail.com", "yahoo.com", "outlook.com", "live.com",
+  "icloud.com", "me.com", "aol.com", "protonmail.com", "proton.me",
+  "mail.com", "zoho.com", "yandex.com", "gmx.com",
+]);
+function emailDomain(email) {
+  if (!email || typeof email !== "string") return null;
+  const at = email.trim().toLowerCase().indexOf("@");
+  if (at <= 0 || at === email.length - 1) return null;
+  const domain = email.trim().toLowerCase().slice(at + 1);
+  if (GENERIC_EMAIL_DOMAINS.has(domain)) return null;
+  return domain;
+}
+function leadDomainForGuard(lead) {
+  return rootDomain(lead.website) ?? emailDomain(lead.email);
 }
 
 for (const [bid, ls] of leadsByBid) {
@@ -145,7 +166,9 @@ for (const [bid, ls] of leadsByBid) {
     const size = business.number_of_employees_range ?? null;
     const revenue = business.yearly_revenue_range ?? null;
     const naicsDesc = business.naics_description ?? null;
-    const vibeDomain = rootDomain(business.website);
+    // Lección T024 §Integraciones: persistir siempre el website raw.
+    const vibeWebsiteRaw = business.website ?? null;
+    const vibeDomain = rootDomain(vibeWebsiteRaw);
     if (sectorFromBiz) sectorFromApi += 1;
     else sectorEmpty += 1;
 
@@ -153,7 +176,12 @@ for (const [bid, ls] of leadsByBid) {
     // coherencia de dominio (mismo criterio que mergeBusinessFirmographics
     // en el flujo del job).
     for (const lead of ls) {
-      const leadDomain = rootDomain(lead.website);
+      // T024 fix: fallback al dominio del email cuando no hay website.
+      // Antes solo rootDomain(lead.website).
+      const leadDomain = leadDomainForGuard({
+        website: lead.website,
+        email: lead.email,
+      });
       const isMismatch = leadDomain && vibeDomain && leadDomain !== vibeDomain;
       const newCustom = { ...(lead.custom_fields ?? {}) };
       const updates = { custom_fields: newCustom };
@@ -167,6 +195,7 @@ for (const [bid, ls] of leadsByBid) {
         });
         newCustom.firmographics_domain_verified = "false";
         newCustom.review_reason = "data_mismatch";
+        if (vibeWebsiteRaw) newCustom.firmographics_vibe_website = vibeWebsiteRaw;
         updates.needs_review = true;
         mismatchLeads += 1;
       } else {
@@ -177,6 +206,7 @@ for (const [bid, ls] of leadsByBid) {
         if (size) newCustom.company_size = size;
         if (revenue) newCustom.company_revenue = revenue;
         if (naicsDesc) newCustom.naics_description = naicsDesc;
+        if (vibeWebsiteRaw) newCustom.firmographics_vibe_website = vibeWebsiteRaw;
         newCustom.firmographics_domain_verified = verified ? "true" : "false";
         // Solo llenamos sector si el lead no lo tiene.
         if (!lead.sector && sectorFromBiz) updates.sector = sectorFromBiz;

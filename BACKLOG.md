@@ -5,6 +5,34 @@ pivote a SaaS — esos viven en `BACKLOG-PIVOTE.md` (constitución §1 de la spe
 
 ---
 
+## Reglas de ingeniería
+
+Reglas transversales que aplican al diseño de futuras integraciones,
+no tareas concretas. Complementan `docs/REVIEWER-CHECKLIST.md`.
+
+### Persistencia del raw de toda API de pago
+
+Toda respuesta de una API de pago (Vibe, Anthropic, Lemlist, y las que
+vengan) se persiste **cruda** — objeto JSON completo con timestamp —
+antes de que ningún mapper la toque. El mapper lee del raw, nunca del
+objeto en memoria.
+
+Motivo (post-mortem 2026-09-28 backfill firmographics): el enrich de
+Vibe devolvía `business.website` desde el día 1; no se persistía porque
+"no se usaba todavía". Cuando el guard de coherencia de dominio lo
+necesitó, hubo que re-pagar el enrich para recuperar un campo que ya
+habíamos comprado. Con el raw persistido, el reverify es siempre
+gratis y el debug de discrepancias future-proof.
+
+Convención de campo: `custom_fields.<source>_raw = {fetched_at, data}`
+donde `data` es la respuesta JSON íntegra tal cual llegó. El mapper
+lee de `data.<field>` y persiste los derivados que necesita
+(`company_description`, `firmographics_vibe_website`, etc.) en las
+mismas custom_fields como caché indexado — pero la fuente de verdad es
+`_raw`.
+
+---
+
 ## Agentes
 
 ### Echo — graduación a modo ACT por cubos
@@ -181,6 +209,22 @@ exigiendo citar campos usados y explicar por qué < 40):
 No prioritario hasta que Nova entre en volumen real (Fase 3+ o el
 día que el pool pase de miles). Con < 500 leads/mes el ahorro es
 ruido.
+
+### `custom_fields.firmographics_raw` en el próximo enrich
+
+Aplicar la regla de ingeniería "Persistencia del raw de toda API de
+pago" a `nova-vibe-fetch` y a `scripts/backfill-vibe-firmographics.mjs`:
+además de los campos derivados (`company_description`, `company_size`,
+`firmographics_vibe_website`, etc.), persistir la respuesta cruda del
+enrich en `custom_fields.firmographics_raw = { fetched_at, data }`.
+
+Coste: nulo (memoria + jsonb en Postgres). Beneficio: cualquier
+verificación futura, debug o mapeo de campos nuevos que Vibe ya
+devuelva se hace sin re-pagar el enrich. Reverify pasa a ser
+100% autónomo (hoy queda parcial: solo re-comprueba dominio).
+
+No se implementa hoy. Se activa en el próximo cambio del pipeline
+Vibe (nuevo campo a mapear, cambio de guard, etc.).
 
 ### Probe país-del-contacto en Vibe (country_code vs prospect_country_code)
 

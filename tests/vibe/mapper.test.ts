@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  emailDomain,
   extractFetchProspects,
   indexEnrichResponseByProspectId,
+  leadDomainForGuard,
   mapProspectToLeadDraft,
   mergeBusinessFirmographics,
   mergeEnrichedContact,
@@ -235,15 +237,17 @@ describe("mergeBusinessFirmographics — guard de dominio (T024)", () => {
     expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("false");
   });
 
-  it("lead sin website → domainVerified=false", () => {
+  it("lead sin website pero con email corporativo coincidente → verified=true (fix backfill 2026-09-28)", () => {
+    // Con el fix, el email de baseDraft (x@intarcon.com) actúa
+    // como fallback y coincide con vibe.website (intarcon.com).
     const draftNoWebsite = { ...baseDraft, website: null };
     const outcome = mergeBusinessFirmographics(draftNoWebsite, {
       website: "https://intarcon.com",
       business_description: "text",
     });
     expect(outcome.mismatch).toBeUndefined();
-    expect(outcome.domainVerified).toBe(false);
-    expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("false");
+    expect(outcome.domainVerified).toBe(true);
+    expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("true");
   });
 
   it("no sobrescribe sector si el lead ya lo tenía", () => {
@@ -253,5 +257,159 @@ describe("mergeBusinessFirmographics — guard de dominio (T024)", () => {
       linkedin_industry_category: "different sector",
     });
     expect(outcome.draft.sector).toBe("prior sector");
+  });
+
+  it("REGRESIÓN backfill 2026-09-28: lead SIN website → usa dominio del email como fallback", () => {
+    // Reproduce el bug real del backfill: el SELECT del script no
+    // traía lead.website, así que draft.website era undefined y el
+    // guard caía a "unverified" para los 114 leads. Con el fix,
+    // el email corporativo (intarcon.com) se usa como fallback y
+    // la coincidencia con vibe_domain permite verified=true.
+    const draftNoWebsite = {
+      email: "director@intarcon.com",
+      company: "Intarcon",
+      website: null,
+      custom_fields: { business_id: "biz1" },
+    };
+    const outcome = mergeBusinessFirmographics(draftNoWebsite, {
+      website: "https://www.intarcon.com/",
+      business_description: "Spanish leading manufacturer for refrigeration units.",
+      linkedin_industry_category: "industrial machinery manufacturing",
+    });
+    expect(outcome.mismatch).toBeUndefined();
+    expect(outcome.domainVerified).toBe(true);
+    expect(outcome.draft.custom_fields?.company_description).toContain("refrigeration");
+    expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("true");
+  });
+
+  it("REGRESIÓN backfill: sin website + email genérico (gmail) → sigue unverified (no falso positivo)", () => {
+    // Un email @gmail.com no representa a la empresa, así que no
+    // debe servir de fallback (evita contaminar el guard con
+    // coincidencias arbitrarias en dominios gratuitos).
+    const draftGmail = {
+      email: "juan@gmail.com",
+      company: "Whatever",
+      website: null,
+      custom_fields: {},
+    };
+    const outcome = mergeBusinessFirmographics(draftGmail, {
+      website: "https://acme.com",
+      business_description: "Some description",
+    });
+    expect(outcome.mismatch).toBeUndefined();
+    expect(outcome.domainVerified).toBe(false);
+    expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("false");
+  });
+
+  it("REGRESIÓN: fallback email dispara mismatch si difiere del vibe_domain", () => {
+    // Lead con website null y email en un dominio corporativo
+    // distinto del que devuelve Vibe → mismatch legítimo, no
+    // se persiste description.
+    const draftEmailOnly = {
+      email: "founder@linqcase.com",
+      company: "Linq",
+      website: null,
+      custom_fields: {},
+    };
+    const outcome = mergeBusinessFirmographics(draftEmailOnly, {
+      website: "https://linq.com",
+      business_description: "nondestructive inspection systems",
+    });
+    expect(outcome.mismatch).toEqual({
+      vibe_domain: "linq.com",
+      lead_domain: "linqcase.com",
+    });
+    expect(outcome.domainVerified).toBe(false);
+    expect(outcome.draft.custom_fields?.company_description).toBeUndefined();
+  });
+
+  it("REGRESIÓN reverify 2026-09-28: lead con website Y Vibe con website distinto → mismatch (persiste vibe_website para reverify posterior)", () => {
+    // Caso principal que Pere pidió testear. Lead con website propio
+    // (linqcase.com) y Vibe devuelve website de otra empresa
+    // (linq.com). El guard debe:
+    //   - detectar mismatch,
+    //   - NO persistir description contaminada,
+    //   - guardar el vibe_website ORIGINAL en custom_fields para
+    //     que reverify-firmographics-domain.mjs pueda re-comparar
+    //     sin llamar a Vibe (lección T024 §Integraciones).
+    const leadWithWebsite = {
+      email: "founder@linqcase.com",
+      company: "Linq",
+      website: "https://linqcase.com/",
+      custom_fields: { business_id: "biz-wrong" },
+    };
+    const outcome = mergeBusinessFirmographics(leadWithWebsite, {
+      website: "https://linq.com",
+      business_description: "OTHER company inspection systems",
+      linkedin_industry_category: "industrial machinery manufacturing",
+    });
+    expect(outcome.mismatch).toEqual({
+      vibe_domain: "linq.com",
+      lead_domain: "linqcase.com",
+    });
+    expect(outcome.domainVerified).toBe(false);
+    expect(outcome.draft.custom_fields?.company_description).toBeUndefined();
+    // Vibe_website persistido para poder re-verificar sin coste.
+    expect(outcome.draft.custom_fields?.firmographics_vibe_website).toBe(
+      "https://linq.com",
+    );
+  });
+
+  it("REGRESIÓN reverify: en match, también persiste firmographics_vibe_website", () => {
+    const outcome = mergeBusinessFirmographics(baseDraft, {
+      website: "https://intarcon.com",
+      business_description: "manufacturer",
+    });
+    expect(outcome.draft.custom_fields?.firmographics_vibe_website).toBe(
+      "https://intarcon.com",
+    );
+    expect(outcome.draft.custom_fields?.firmographics_domain_verified).toBe("true");
+  });
+});
+
+describe("emailDomain (T024 fix backfill)", () => {
+  it("extrae el dominio de un email corporativo", () => {
+    expect(emailDomain("j.simon@tierratech.com")).toBe("tierratech.com");
+    expect(emailDomain("A@B.CO")).toBe("b.co");
+  });
+  it("null para input inválido", () => {
+    expect(emailDomain(null)).toBeNull();
+    expect(emailDomain("")).toBeNull();
+    expect(emailDomain("no arroba")).toBeNull();
+    expect(emailDomain("@")).toBeNull();
+    expect(emailDomain("x@")).toBeNull();
+    expect(emailDomain("@dom.com")).toBeNull();
+  });
+  it("null para dominios genéricos (gmail/hotmail/etc)", () => {
+    expect(emailDomain("x@gmail.com")).toBeNull();
+    expect(emailDomain("y@hotmail.com")).toBeNull();
+    expect(emailDomain("z@yahoo.com")).toBeNull();
+    expect(emailDomain("q@outlook.com")).toBeNull();
+    expect(emailDomain("w@proton.me")).toBeNull();
+  });
+});
+
+describe("leadDomainForGuard (T024 fix backfill)", () => {
+  it("prefiere website si existe", () => {
+    expect(
+      leadDomainForGuard({
+        website: "https://intarcon.com",
+        email: "x@otherdomain.com",
+      }),
+    ).toBe("intarcon.com");
+  });
+  it("cae al email si no hay website", () => {
+    expect(
+      leadDomainForGuard({ website: null, email: "x@intarcon.com" }),
+    ).toBe("intarcon.com");
+    expect(
+      leadDomainForGuard({ website: "", email: "x@intarcon.com" }),
+    ).toBe("intarcon.com");
+  });
+  it("null si ambos ausentes o el email es genérico", () => {
+    expect(leadDomainForGuard({ website: null, email: null })).toBeNull();
+    expect(
+      leadDomainForGuard({ website: null, email: "x@gmail.com" }),
+    ).toBeNull();
   });
 });
