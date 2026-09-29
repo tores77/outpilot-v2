@@ -119,6 +119,17 @@ const HEADERS = [
   "especifico",
   "relevante",
   "no_invasivo",
+  // T024 (2026-09-29 caso Fluytec): calidad de la fuente sobre la
+  // que se apoya el opener. Vacío por defecto — el humano lo
+  // rellena en el eval. Valores sugeridos:
+  //   "high"          — website_summary corrobora todo lo citado
+  //   "medium"        — website_summary parcial, vibe_description completa
+  //   "low"           — solo vibe_description, sin website_summary
+  //   "unverifiable"  — cifras del opener no aparecen en ninguna fuente
+  //                     verificable (ejemplo Fluytec: "más de 45 años"
+  //                     solo en vibe_description; regla 14 del prompt
+  //                     debe capturar esto en el próximo re-lex)
+  "source_quality",
   "nota",
 ];
 
@@ -140,7 +151,9 @@ for (const row of rows) {
         "", // opener
         "", // fields_used
         "", // reason_if_generic
-        "", "", "", "", "", // scores + nota
+        "", "", "", "", // 4 scores 1-5
+        "", // source_quality
+        "", // nota
       ].join(","),
     );
     continue;
@@ -159,7 +172,9 @@ for (const row of rows) {
       csvCell(p.opener ?? ""),
       csvCell(fieldsUsed),
       csvCell(p.reason_if_generic ?? ""),
-      "", "", "", "", "", // scores + nota vacíos
+      "", "", "", "", // 4 scores 1-5
+      "", // source_quality
+      "", // nota
     ].join(","),
   );
 }

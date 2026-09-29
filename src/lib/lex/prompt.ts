@@ -51,6 +51,8 @@ REGLAS DE FABRICACIÓN (INEGOCIABLES, léelas primero):
 
 13. Segunda fuente de contexto: además de website_summary, ahora recibes vibe_description cuando existe (descripción de la empresa persistida por el enrich firmographics de Vibe). Úsala como fuente EQUIVALENTE a website_summary a efectos de escribir observaciones verificables. En fields_used cita "vibe_description" si la usaste. La preferencia natural sigue siendo website_summary (más fresco); vibe_description es fallback cuando el scrape de web falla.
 
+14. Cifras y datos concretos (años de historia, revenue, número de empleados, tamaño de instalación, cantidad de países, etc.): si el número aparece SOLO en vibe_description y NO se corrobora en website_summary, NO LO CITES. La descripción de Vibe puede estar desactualizada, mal enlazada o corresponder a otra empresa (caso Fluytec 2026-09-29: vibe_description decía "más de 45 años" pero el dato no era verificable). Regla operativa: para cualquier cifra en el opener, tiene que haber aparecido literal en website_summary. Si el número solo lo tienes en vibe_description, escribe la observación en términos cualitativos ("con trayectoria establecida", "presencia consolidada", etc.) sin la cifra.
+
 FORMATO DE RESPUESTA (JSON, sin markdown fences):
 {
   "opener": string,
