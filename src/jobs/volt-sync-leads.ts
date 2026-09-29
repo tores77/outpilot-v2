@@ -28,6 +28,7 @@ import { createLemlistClient } from "@/channels/lemlist/client";
 import { createLemlistEmailProvider } from "@/channels/lemlist/provider";
 import { getLemlistCampaign } from "@/channels/lemlist/campaign-ops";
 import { buildAddLeadPersonalization } from "@/lib/volt/opener";
+import { detectNameSwap } from "@/lib/leads/name-swap";
 import {
   LEMLIST_UNSAFE_CAMPAIGN_STATES,
   VOLT_ERROR_CAMPAIGN_UNSAFE,
@@ -73,7 +74,15 @@ type SyncOutcome =
       companyDisplayRejected: boolean;
     }
   | { kind: "lost_race"; companyDisplayRejected: boolean }
-  | { kind: "error"; error: string; companyDisplayRejected: boolean };
+  | { kind: "error"; error: string; companyDisplayRejected: boolean }
+  // T024 (Ibarmia 2026-09-29): first_name/last_name intercambiados
+  // respecto al email. Marca el campaign_lead como suspect y NO llama
+  // a Lemlist. Humano revisa, corrige `leads` y vuelve a sincronizar.
+  | {
+      kind: "name_swap_suspect";
+      reason: string;
+      companyDisplayRejected: false;
+    };
 
 function getLemlistClient() {
   const apiKey = process.env.LEMLIST_API_KEY;
@@ -179,6 +188,9 @@ export const voltSyncLeads = inngest.createFunction(
         sent: 0,
         errors: 0,
         lost_races: 0,
+        company_display_rejected: 0,
+        name_swap_suspects: 0,
+        name_swap_suspect_ids: [],
         failed_ids: [],
         latency_ms: latencyMs,
       };
@@ -189,7 +201,9 @@ export const voltSyncLeads = inngest.createFunction(
     let errors = 0;
     let lostRaces = 0;
     let companyDisplayRejected = 0;
+    let nameSwapSuspects = 0;
     const failedIds: string[] = [];
+    const nameSwapSuspectIds: string[] = [];
 
     for (const { campaign_lead_id, lead, personalization } of pending) {
       // Cast necesario: Inngest ensancha los literal types del return
@@ -199,6 +213,46 @@ export const voltSyncLeads = inngest.createFunction(
         `sync-lead-${campaign_lead_id}`,
         async () => {
           try {
+            // T024: guard barato ANTES de gastar tokens/API. Si el
+            // first_name/last_name está swapped respecto al email, el
+            // merge tag {{firstName}} en Lemlist quemaría el lead
+            // ("Hola Arandia" en vez de "Hola Koldo"). Bloqueamos y
+            // dejamos rastro en personalization para revisión humana.
+            const swap = detectNameSwap({
+              first_name: lead.first_name,
+              last_name: lead.last_name,
+              email: lead.email,
+            });
+            if (swap.suspect) {
+              const currentPers =
+                personalization && typeof personalization === "object"
+                  ? (personalization as Record<string, unknown>)
+                  : {};
+              const nextPers = {
+                ...currentPers,
+                name_swapped_suspect: true,
+                name_swap_reason: swap.reason,
+                name_swap_flagged_at: new Date().toISOString(),
+              };
+              const { error: flagErr } = await supabase
+                .from("campaign_leads")
+                .update({ personalization: nextPers })
+                .eq("tenant_id", tenantId)
+                .eq("id", campaign_lead_id);
+              if (flagErr) {
+                return {
+                  kind: "error",
+                  error: `flag name_swap failed: ${flagErr.message}`,
+                  companyDisplayRejected: false,
+                };
+              }
+              return {
+                kind: "name_swap_suspect",
+                reason: swap.reason,
+                companyDisplayRejected: false,
+              };
+            }
+
             const built = buildAddLeadPersonalization({
               personalization,
               openerFallback,
@@ -263,7 +317,10 @@ export const voltSyncLeads = inngest.createFunction(
       if (outcome.companyDisplayRejected) companyDisplayRejected += 1;
       if (outcome.kind === "sent") sent += 1;
       else if (outcome.kind === "lost_race") lostRaces += 1;
-      else {
+      else if (outcome.kind === "name_swap_suspect") {
+        nameSwapSuspects += 1;
+        nameSwapSuspectIds.push(campaign_lead_id);
+      } else {
         errors += 1;
         failedIds.push(campaign_lead_id);
       }
@@ -290,6 +347,11 @@ export const voltSyncLeads = inngest.createFunction(
           // compartía palabra con lead.company). Sin log por lead —
           // solo contador agregado.
           company_display_rejected: companyDisplayRejected,
+          // T024 (Ibarmia 2026-09-29): first/last swapped detectado
+          // por detectNameSwap. Los ids quedan para que el humano
+          // pueda inspeccionarlos, corregir en `leads` y resincronizar.
+          name_swap_suspects: nameSwapSuspects,
+          name_swap_suspect_ids: nameSwapSuspectIds,
           failed_campaign_lead_ids: failedIds,
           latency_ms: latencyMs,
         },
@@ -303,6 +365,8 @@ export const voltSyncLeads = inngest.createFunction(
       errors,
       lost_races: lostRaces,
       company_display_rejected: companyDisplayRejected,
+      name_swap_suspects: nameSwapSuspects,
+      name_swap_suspect_ids: nameSwapSuspectIds,
       failed_ids: failedIds,
       latency_ms: latencyMs,
     };
