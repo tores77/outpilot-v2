@@ -48,9 +48,20 @@ const eslintConfig = defineConfig([
   //   - src/jobs/**                (jobs consume these on purpose)
   //   - src/lib/ai/claude.ts       (the wrapper is what imports service_role;
   //                                  callers of the wrapper are still gated)
+  //   - src/app/api/webhooks/**    (T025: provider webhooks are server-only
+  //                                  trusted contexts — no user session,
+  //                                  secret compartido en la ruta — equivalentes
+  //                                  semánticos a jobs. Necesitan service_role
+  //                                  para escribir filas con tenant_id = NULL
+  //                                  cuando el payload no resuelve a un
+  //                                  tenant conocido.)
   {
     files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/jobs/**", "src/lib/ai/claude.ts"],
+    ignores: [
+      "src/jobs/**",
+      "src/lib/ai/claude.ts",
+      "src/app/api/webhooks/**",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
