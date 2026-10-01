@@ -13,6 +13,7 @@ import { lexPersonalize } from "@/jobs/lex-personalize";
 import { voltCreateCampaign } from "@/jobs/volt-create-campaign";
 import { voltSmokePrepare } from "@/jobs/volt-smoke-prepare";
 import { voltSyncLeads } from "@/jobs/volt-sync-leads";
+import { voltSyncCampaignStatus } from "@/jobs/volt-sync-campaign-status";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -24,5 +25,6 @@ export const { GET, POST, PUT } = serve({
     voltCreateCampaign,
     voltSmokePrepare,
     voltSyncLeads,
+    voltSyncCampaignStatus,
   ],
 });
