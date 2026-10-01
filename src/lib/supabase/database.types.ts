@@ -378,6 +378,59 @@ export type Database = {
           },
         ]
       }
+      lemlist_events: {
+        Row: {
+          campaign_external_id: string | null
+          email_hash: string | null
+          event_created_at: string | null
+          event_external_id: string | null
+          id: string
+          lead_external_id: string | null
+          payload: Json
+          processed_at: string | null
+          processing_error: string | null
+          received_at: string
+          tenant_id: string | null
+          type: string
+        }
+        Insert: {
+          campaign_external_id?: string | null
+          email_hash?: string | null
+          event_created_at?: string | null
+          event_external_id?: string | null
+          id?: string
+          lead_external_id?: string | null
+          payload: Json
+          processed_at?: string | null
+          processing_error?: string | null
+          received_at?: string
+          tenant_id?: string | null
+          type: string
+        }
+        Update: {
+          campaign_external_id?: string | null
+          email_hash?: string | null
+          event_created_at?: string | null
+          event_external_id?: string | null
+          id?: string
+          lead_external_id?: string | null
+          payload?: Json
+          processed_at?: string | null
+          processing_error?: string | null
+          received_at?: string
+          tenant_id?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lemlist_events_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       outreach_exclusions: {
         Row: {
           created_at: string

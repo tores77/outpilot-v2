@@ -46,6 +46,12 @@ const endpoint = `${baseUrl}/api/webhooks/lemlist/${encodeURIComponent(secret)}`
 // Fixture: emailsSent sintético. Mismo shape que /api/activities v2
 // (ver probe de T025 contra Lemlist real). Email de probe que NO
 // corresponde a ningún lead real para evitar enlazar accidentalmente.
+//
+// T025 (2026-10-01): el fixture ahora incluye `secret` en el body,
+// con el MISMO valor que el URL secret — así en modo observe o
+// enforce el probe pasa igual. Un cuarto chequeo (opcional) prueba
+// que un body sin secret se persiste con processing_error en modo
+// observe. Esto se verifica a mano con SQL después del probe.
 const probeId = `act_probe_${Date.now().toString(36)}`;
 const fixture = {
   _id: probeId,
@@ -58,6 +64,8 @@ const fixture = {
   subject: "probe webhook",
   messagePreview: "probe body preview",
   teamId: "tea_probe",
+  // Capa 2: Lemlist devuelve el secret aquí (doc oficial 2026-10-01).
+  secret,
 };
 
 const emailHash = createHash("sha256")
@@ -121,11 +129,36 @@ if (r3.status !== 404) {
   process.exit(5);
 }
 
+// 4. Fixture SIN secret en body (prueba modo observe). En observe,
+//    el endpoint persiste con processing_error = body_secret_missing.
+//    En enforce, responde 404 — se adapta el chequeo.
+console.log(
+  `\n[probe-webhook] 4/4 — fixture sin payload.secret (prueba modo observe/enforce)…`,
+);
+const probeIdNoSecret = `act_probe_nosecret_${Date.now().toString(36)}`;
+const { secret: _omit, ...fixtureNoSecret } = fixture;
+fixtureNoSecret._id = probeIdNoSecret;
+const r4 = await postJson(endpoint, fixtureNoSecret);
+const expectedMode = process.env.LEMLIST_WEBHOOK_BODY_CHECK === "enforce" ? "enforce" : "observe";
+console.log(
+  `[probe-webhook]   LEMLIST_WEBHOOK_BODY_CHECK=${expectedMode} status=${r4.status} body=${JSON.stringify(r4.body)}`,
+);
+if (expectedMode === "observe" && r4.status !== 200) {
+  console.error(`[probe-webhook] ESPERABA 200 (observe), obtuve ${r4.status}`);
+  process.exit(6);
+}
+if (expectedMode === "enforce" && r4.status !== 404) {
+  console.error(`[probe-webhook] ESPERABA 404 (enforce), obtuve ${r4.status}`);
+  process.exit(7);
+}
+
 console.log(`\n[probe-webhook] ✓ todas las comprobaciones OK.`);
 console.log(
   `[probe-webhook] Para verificar en BD, Pere corre:\n` +
     `  select type, event_external_id, email_hash, received_at, processing_error\n` +
-    `  from lemlist_events where event_external_id = '${probeId}';\n` +
-    `  -- debe devolver 1 fila con processing_error = 'tenant_lookup_failed'\n` +
-    `  -- (campaignId=cam_probe_webhook no corresponde a ninguna campaña real).`,
+    `  from lemlist_events where event_external_id in ('${probeId}', '${probeIdNoSecret}');\n` +
+    `  -- fila 1 (${probeId}): processing_error = 'tenant_lookup_failed'\n` +
+    `  --   (campaignId=cam_probe_webhook no es una campaña real).\n` +
+    `  -- fila 2 (${probeIdNoSecret}, SOLO si LEMLIST_WEBHOOK_BODY_CHECK=observe):\n` +
+    `  --   processing_error = 'body_secret_missing' (prioridad sobre tenant).`,
 );

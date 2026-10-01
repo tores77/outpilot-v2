@@ -37,6 +37,10 @@ export type LemlistWebhookPayload = {
   leadEmail?: unknown;
   to?: unknown;
   createdAt?: unknown;
+  // T025 (hallazgo doc oficial Lemlist 2026-10-01): el campo "Secret"
+  // del formulario de webhook se devuelve EN EL BODY, no en cabecera.
+  // Ver header de route.ts para la cita.
+  secret?: unknown;
   [key: string]: unknown;
 };
 
@@ -48,6 +52,7 @@ export type ParsedLemlistEvent = {
   email: string | null;            // lowercased, trimmed; null si no viene
   emailHash: string | null;        // sha256 hex de email; null si no viene
   eventCreatedAt: Date | null;     // payload.createdAt parseado
+  secretFromBody: string | null;   // payload.secret (NO se persiste; strip en el router)
 };
 
 export type ParseResult =
@@ -117,6 +122,19 @@ export function parseLemlistWebhook(body: unknown): ParseResult {
       email,
       emailHash: email ? hashEmail(email) : null,
       eventCreatedAt: extractDate(p.createdAt),
+      secretFromBody: asStringOrNull(p.secret),
     },
   };
+}
+
+/**
+ * Devuelve una copia del body SIN el campo `secret`, para persistir
+ * en lemlist_events.payload. No modifica el input. Preserva todo lo
+ * demás tal cual (regla "raw crudo", excepto este campo que es
+ * ruido + superficie de ataque en BD).
+ */
+export function stripBodySecret(body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const { secret: _secret, ...rest } = body as Record<string, unknown>;
+  return rest;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseLemlistWebhook,
   hashEmail,
+  stripBodySecret,
 } from "@/lib/lemlist/webhook-parser";
 
 // Fixtures sintéticas (sin PII real). Las usamos para verificar que
@@ -180,6 +181,75 @@ describe("hashEmail — determinismo + normalización", () => {
 
   it("emails distintos → hashes distintos", () => {
     expect(hashEmail("a@b.com")).not.toBe(hashEmail("c@d.com"));
+  });
+});
+
+describe("parseLemlistWebhook — payload.secret (T025 hallazgo doc oficial)", () => {
+  it("secret presente → secretFromBody extraído", () => {
+    const r = parseLemlistWebhook(baseEvent({ secret: "my-secret-value" }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.secretFromBody).toBe("my-secret-value");
+  });
+
+  it("secret ausente → secretFromBody null", () => {
+    const r = parseLemlistWebhook(baseEvent());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.secretFromBody).toBeNull();
+  });
+
+  it("secret vacío → secretFromBody null (trim)", () => {
+    const r = parseLemlistWebhook(baseEvent({ secret: "   " }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.secretFromBody).toBeNull();
+  });
+
+  it("secret con whitespace → trimmed", () => {
+    const r = parseLemlistWebhook(baseEvent({ secret: "  abc  " }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.secretFromBody).toBe("abc");
+  });
+});
+
+describe("stripBodySecret (T025 — strip del secret antes de persistir)", () => {
+  it("elimina `secret` top-level, preserva el resto", () => {
+    const body = {
+      _id: "act_1",
+      type: "emailsSent",
+      secret: "my-secret",
+      leadEmail: "a@b.com",
+    };
+    const stripped = stripBodySecret(body) as Record<string, unknown>;
+    expect(stripped.secret).toBeUndefined();
+    expect(stripped._id).toBe("act_1");
+    expect(stripped.type).toBe("emailsSent");
+    expect(stripped.leadEmail).toBe("a@b.com");
+  });
+
+  it("sin secret → body idéntico (sin mutar)", () => {
+    const body = { _id: "act_1", type: "emailsSent" };
+    const stripped = stripBodySecret(body) as Record<string, unknown>;
+    expect(stripped).toEqual(body);
+    // No muta el original.
+    expect(Object.keys(body)).toEqual(["_id", "type"]);
+  });
+
+  it("no muta el input original", () => {
+    const body = { _id: "act_1", secret: "x" };
+    stripBodySecret(body);
+    expect((body as Record<string, unknown>).secret).toBe("x");
+  });
+
+  it("null → null (defensivo)", () => {
+    expect(stripBodySecret(null)).toBeNull();
+  });
+
+  it("array → array sin tocar (defensivo)", () => {
+    const arr = [{ secret: "x" }];
+    expect(stripBodySecret(arr)).toBe(arr);
   });
 });
 
