@@ -9,6 +9,13 @@
 //     Insert / upsert calls are skipped by design — the payload check is
 //     harder to model statically and is deferred; those callers must pass
 //     tenant_id in the payload object, verified in review.
+//
+//     T025 (bloque D): se añade una lista de tablas EXENTAS por nombre
+//     — las tablas PADRE sin columna tenant_id, que un cron multi-tenant
+//     tiene que listar para iterar (`tenants`) o enlazar
+//     (`allowed_users`). Un eslint-disable por sitio sería ruido que
+//     nadie lee; la exención por nombre documenta la regla en un solo
+//     punto.
 
 /**
  * Walk up the call chain that starts at a `.from(...)` CallExpression and
@@ -65,6 +72,13 @@ function isTenantIdMatchCall(node) {
   });
 }
 
+// Tablas PADRE del modelo multi-tenant: NO llevan columna tenant_id
+// (son la fuente de "qué tenants / qué usuarios existen"). Un cron
+// multi-tenant necesita listarlas o enlazar contra ellas sin filtro.
+// La exención se aplica por nombre del primer argumento literal de
+// `.from(...)` — un cálculo dinámico cae al chequeo normal.
+const TABLES_WITHOUT_TENANT_ID = new Set(["tenants", "allowed_users"]);
+
 function isInsertOrUpsertCall(node) {
   if (node.callee.type !== "MemberExpression") return false;
   if (node.callee.property.type !== "Identifier") return false;
@@ -109,6 +123,10 @@ const requireTenantIdFilter = {
           typeof tableArg.value === "string"
             ? tableArg.value
             : "<unknown>";
+
+        // Exención: tablas padre sin columna tenant_id. Un cron
+        // multi-tenant necesita listarlas sin filtro.
+        if (TABLES_WITHOUT_TENANT_ID.has(tableName)) return;
 
         const chain = collectChainCalls(node);
 

@@ -73,12 +73,9 @@ export const voltSyncCampaignStatus = inngest.createFunction(
     const lemlist = createLemlistClient({ apiKey: getLemlistApiKey() });
 
     // ===== 1. Lista tenants =====
-    // La tabla `tenants` es la tabla PADRE: no tiene columna
-    // tenant_id, es la fuente. La regla outpilot/require-tenant-id-filter
-    // está pensada para hijas (todo lo que tiene tenant_id FK). Aquí
-    // listamos la tabla padre para iterar y hacer per-tenant lookups
-    // más abajo. Escape local, documentado.
-    // eslint-disable-next-line outpilot/require-tenant-id-filter -- tenants es la tabla padre, no tiene columna tenant_id
+    // `tenants` está exenta por nombre en la regla
+    // outpilot/require-tenant-id-filter (plugin.mjs: tabla padre
+    // sin columna tenant_id).
     const { data: tenantRows, error: tErr } = await supabase
       .from("tenants")
       .select("id");
@@ -92,12 +89,15 @@ export const voltSyncCampaignStatus = inngest.createFunction(
 
     for (const tenantId of tenantIds) {
       // ===== 2. Load campaigns del tenant =====
+      // Incluye provider_status PREVIO para deduplicar el evento
+      // status_drift: solo lo emitimos cuando el valor cambia
+      // respecto al último sync, no cada hora.
       const campaigns = await step.run(
         `load-campaigns-${tenantId}`,
         async () => {
           const { data, error } = await supabase
             .from("campaigns")
-            .select("id, status, provider_external_id")
+            .select("id, status, provider_external_id, provider_status")
             .eq("tenant_id", tenantId)
             .not("provider_external_id", "is", null)
             .neq("status", "done");
@@ -143,16 +143,10 @@ export const voltSyncCampaignStatus = inngest.createFunction(
             const nowIso = new Date().toISOString();
 
             // UPDATE siempre: provider_status + provider_status_synced_at.
-            //
-            // Nota de tipos (temporal, pre-gen-types tras aplicar
-            // 009a): database.types.ts aún no conoce las columnas
-            // nuevas. Cast local con `as unknown as` para que tsc
-            // compile; el próximo commit tras `npm run gen-types`
-            // retira el cast — es el patrón que ya usamos para 009.
-            const update = {
+            const update: Database["public"]["Tables"]["campaigns"]["Update"] = {
               provider_status: providerStatus,
               provider_status_synced_at: nowIso,
-            } as unknown as Database["public"]["Tables"]["campaigns"]["Update"];
+            };
             const { error: upErr } = await supabase
               .from("campaigns")
               .update(update)
@@ -165,12 +159,18 @@ export const voltSyncCampaignStatus = inngest.createFunction(
               };
             }
 
-            // Classify drift y, si lo hay, evento informativo.
+            // Classify drift y, si lo hay, evento informativo —
+            // SOLO cuando provider_status CAMBIA respecto al valor
+            // anterior. Sin esta dedupe, un drift persistente (ej.
+            // smoke_test vs running durante 2 semanas) escribiría
+            // un evento por hora. Primer run: c.provider_status es
+            // null → distinto de cualquier valor nuevo → sí inserta.
             const drift = detectInternalStatusDrift(
               c.status as CampaignStatus,
               providerStatus,
             );
-            if (drift.drift) {
+            const providerStatusChanged = c.provider_status !== providerStatus;
+            if (drift.drift && providerStatusChanged) {
               const { error: evErr } = await supabase.from("events").insert({
                 tenant_id: tenantId,
                 kind: "campaigns.status_drift",
@@ -180,6 +180,7 @@ export const voltSyncCampaignStatus = inngest.createFunction(
                 payload: {
                   internal_status: c.status,
                   provider_status: providerStatus,
+                  previous_provider_status: c.provider_status,
                   mapped_status: drift.mapped,
                   drift_kind: drift.kind,
                 },
