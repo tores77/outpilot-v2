@@ -1,0 +1,22 @@
+{
+  "_id": "act_fixture_replied_000001",
+  "type": "emailsReplied",
+  "teamId": "tea_fixture_000001",
+  "createdAt": "2026-10-04T10:00:00.000Z",
+  "contactId": "ctc_fixture_000004",
+  "secret": "FIXTURE_SECRET_PLACEHOLDER",
+  "campaignId": "cam_fixture_000001",
+  "campaignName": "Fixture Campaign · T025",
+  "sequenceId": "seq_fixture_000001",
+  "sendUserId": "usr_fixture_000001",
+  "sendUserEmail": "sender@example.test",
+  "leadId": "lea_fixture_000004",
+  "leadEmail": "person-reply@example.test",
+  "to": [{ "address": "sender@example.test", "name": "Fixture Sender" }],
+  "subject": "Re: Fixture · pregunta rápida",
+  "isThirdPartyReply": false,
+  "bodyText": "Hola, gracias por el mensaje. ¿Podríamos hablar la próxima semana?",
+  "bodyHtml": "<p>Hola, gracias por el mensaje.</p><p>¿Podríamos hablar la próxima semana?</p>",
+  "messageId": "<fixture-reply-000001@example.test>",
+  "inReplyTo": "<fixture-sent-000001@example.test>"
+}

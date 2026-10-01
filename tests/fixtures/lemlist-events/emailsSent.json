@@ -1,0 +1,22 @@
+{
+  "_id": "act_fixture_sent_000001",
+  "type": "emailsSent",
+  "teamId": "tea_fixture_000001",
+  "createdAt": "2026-10-01T10:00:00.000Z",
+  "contactId": "ctc_fixture_000001",
+  "secret": "FIXTURE_SECRET_PLACEHOLDER",
+  "campaignId": "cam_fixture_000001",
+  "campaignName": "Fixture Campaign · T025",
+  "sequenceId": "seq_fixture_000001",
+  "sequenceStep": 0,
+  "stepId": "stp_fixture_000001",
+  "sendUserId": "usr_fixture_000001",
+  "sendUserEmail": "sender@example.test",
+  "sendUserName": "Fixture Sender",
+  "leadId": "lea_fixture_000001",
+  "leadEmail": "person@example.test",
+  "to": [{ "address": "person@example.test", "name": "Fixture Person" }],
+  "subject": "Fixture · emailsSent",
+  "messagePreview": "Hola Fixture,",
+  "isFirst": true
+}

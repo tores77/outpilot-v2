@@ -1,0 +1,17 @@
+{
+  "_id": "act_fixture_unsub_000001",
+  "type": "emailsUnsubscribed",
+  "teamId": "tea_fixture_000001",
+  "createdAt": "2026-10-03T10:00:00.000Z",
+  "contactId": "ctc_fixture_000003",
+  "secret": "FIXTURE_SECRET_PLACEHOLDER",
+  "campaignId": "cam_fixture_000001",
+  "campaignName": "Fixture Campaign · T025",
+  "sequenceId": "seq_fixture_000001",
+  "sendUserId": "usr_fixture_000001",
+  "sendUserEmail": "sender@example.test",
+  "leadId": "lea_fixture_000003",
+  "leadEmail": "person-unsub@example.test",
+  "unsubscribeReason": "no_longer_interested",
+  "source": "unsubscribe_link"
+}

@@ -1,0 +1,21 @@
+{
+  "_id": "act_fixture_bounced_000001",
+  "type": "emailsBounced",
+  "teamId": "tea_fixture_000001",
+  "createdAt": "2026-10-02T10:00:00.000Z",
+  "contactId": "ctc_fixture_000002",
+  "secret": "FIXTURE_SECRET_PLACEHOLDER",
+  "campaignId": "cam_fixture_000001",
+  "campaignName": "Fixture Campaign · T025",
+  "sequenceId": "seq_fixture_000001",
+  "sequenceStep": 0,
+  "stepId": "stp_fixture_000001",
+  "sendUserId": "usr_fixture_000001",
+  "sendUserEmail": "sender@example.test",
+  "leadId": "lea_fixture_000002",
+  "leadEmail": "nosuchmailbox@example.test",
+  "to": [{ "address": "nosuchmailbox@example.test", "name": "Fixture Bouncy" }],
+  "subject": "Fixture · emailsBounced",
+  "bounceReason": "550 5.1.1 Address rejected: User unknown",
+  "bounceCategory": "mailbox_not_found"
+}
