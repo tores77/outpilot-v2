@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      alerts: {
+        Row: {
+          acknowledged_at: string | null
+          campaign_id: string | null
+          created_at: string
+          id: string
+          kind: string
+          payload: Json
+          tenant_id: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          payload?: Json
+          tenant_id: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alerts_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alerts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       allowed_users: {
         Row: {
           display_name: string | null
@@ -93,6 +138,8 @@ export type Database = {
           campaign_id: string
           id: string
           lead_id: string
+          outcome: Database["public"]["Enums"]["campaign_lead_outcome"] | null
+          outcome_at: string | null
           personalization: Json | null
           provider_contact_id: string | null
           provider_lead_id: string | null
@@ -104,6 +151,8 @@ export type Database = {
           campaign_id: string
           id?: string
           lead_id: string
+          outcome?: Database["public"]["Enums"]["campaign_lead_outcome"] | null
+          outcome_at?: string | null
           personalization?: Json | null
           provider_contact_id?: string | null
           provider_lead_id?: string | null
@@ -115,6 +164,8 @@ export type Database = {
           campaign_id?: string
           id?: string
           lead_id?: string
+          outcome?: Database["public"]["Enums"]["campaign_lead_outcome"] | null
+          outcome_at?: string | null
           personalization?: Json | null
           provider_contact_id?: string | null
           provider_lead_id?: string | null
@@ -387,6 +438,7 @@ export type Database = {
       lemlist_events: {
         Row: {
           campaign_external_id: string | null
+          claimed_at: string | null
           email_hash: string | null
           event_created_at: string | null
           event_external_id: string | null
@@ -401,6 +453,7 @@ export type Database = {
         }
         Insert: {
           campaign_external_id?: string | null
+          claimed_at?: string | null
           email_hash?: string | null
           event_created_at?: string | null
           event_external_id?: string | null
@@ -415,6 +468,7 @@ export type Database = {
         }
         Update: {
           campaign_external_id?: string | null
+          claimed_at?: string | null
           email_hash?: string | null
           event_created_at?: string | null
           event_external_id?: string | null
@@ -468,6 +522,70 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "outreach_exclusions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      replies: {
+        Row: {
+          body_html: string | null
+          body_text: string | null
+          campaign_lead_id: string
+          created_at: string
+          id: string
+          label: string | null
+          labeled_at: string | null
+          labeled_by: string | null
+          lemlist_event_id: string | null
+          received_at: string
+          tenant_id: string
+        }
+        Insert: {
+          body_html?: string | null
+          body_text?: string | null
+          campaign_lead_id: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          labeled_at?: string | null
+          labeled_by?: string | null
+          lemlist_event_id?: string | null
+          received_at: string
+          tenant_id: string
+        }
+        Update: {
+          body_html?: string | null
+          body_text?: string | null
+          campaign_lead_id?: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          labeled_at?: string | null
+          labeled_by?: string | null
+          lemlist_event_id?: string | null
+          received_at?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "replies_campaign_lead_id_fkey"
+            columns: ["campaign_lead_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replies_lemlist_event_id_fkey"
+            columns: ["lemlist_event_id"]
+            isOneToOne: false
+            referencedRelation: "lemlist_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replies_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -626,6 +744,13 @@ export type Database = {
       current_user_tenant_id: { Args: never; Returns: string }
     }
     Enums: {
+      campaign_lead_outcome:
+        | "sent"
+        | "bounced"
+        | "replied"
+        | "unsubscribed"
+        | "interested"
+        | "not_interested"
       campaign_status: "draft" | "smoke_test" | "active" | "paused" | "done"
       channel_account_status: "active" | "paused" | "warming" | "disabled"
       channel_kind: "email"

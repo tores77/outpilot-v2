@@ -14,6 +14,10 @@ import { voltCreateCampaign } from "@/jobs/volt-create-campaign";
 import { voltSmokePrepare } from "@/jobs/volt-smoke-prepare";
 import { voltSyncLeads } from "@/jobs/volt-sync-leads";
 import { voltSyncCampaignStatus } from "@/jobs/volt-sync-campaign-status";
+import {
+  echoProcessLemlistEventCron,
+  echoProcessLemlistEvent,
+} from "@/jobs/echo-process-lemlist-event";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -26,5 +30,7 @@ export const { GET, POST, PUT } = serve({
     voltSmokePrepare,
     voltSyncLeads,
     voltSyncCampaignStatus,
+    echoProcessLemlistEventCron,
+    echoProcessLemlistEvent,
   ],
 });
