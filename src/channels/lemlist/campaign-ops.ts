@@ -31,6 +31,14 @@
 //                                                    → {steps: [...]}
 //   POST   /api/sequences/:sid/steps               → añade step al final
 //                                                    (NO idempotente)
+//   POST   /api/campaigns/:cid/pause                → pausa una campaña
+//                                                    en marcha (T025 C).
+//                                                    Doc oficial:
+//                                                    body vacío,
+//                                                    respuesta {_id,state:"paused"}.
+//                                                    Idempotente: si no
+//                                                    está running, no hace
+//                                                    nada.
 
 import type { LemlistClient } from "./client";
 
@@ -287,6 +295,29 @@ export async function addSequenceStep(
  * uno con el mismo shape lógico (mismos start/end/weekdays/timezone/
  * secondsToWait). Null si no hay match.
  */
+/**
+ * POST /campaigns/:cid/pause — pausa una campaña en marcha.
+ * Documentada en 2026-10-02 (webfetch
+ * developer.lemlist.com/api-reference/endpoints/campaigns/pause-campaign.md).
+ * Idempotente: si la campaña no está running, Lemlist no hace nada
+ * (responde 200 igual). Body vacío.
+ *
+ * Devuelve `{ _id, state }` donde state esperado = "paused".
+ */
+export async function pauseLemlistCampaign(
+  client: LemlistClient,
+  cid: string,
+): Promise<{ _id: string; state?: string }> {
+  const res = await client.post<{ _id: string; state?: string }>(
+    `/campaigns/${encodeURIComponent(cid)}/pause`,
+    undefined,
+  );
+  if (!res?._id) {
+    throw new Error("pauseLemlistCampaign: response sin _id");
+  }
+  return res;
+}
+
 export function findScheduleMatching(
   schedules: readonly LemlistScheduleRow[],
   target: LemlistScheduleBody,

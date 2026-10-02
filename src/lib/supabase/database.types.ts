@@ -751,7 +751,13 @@ export type Database = {
         | "unsubscribed"
         | "interested"
         | "not_interested"
-      campaign_status: "draft" | "smoke_test" | "active" | "paused" | "done"
+      campaign_status:
+        | "draft"
+        | "smoke_test"
+        | "active"
+        | "paused"
+        | "done"
+        | "paused_guardrail"
       channel_account_status: "active" | "paused" | "warming" | "disabled"
       channel_kind: "email"
       channel_provider: "lemlist"
@@ -918,7 +924,14 @@ export const Constants = {
         "interested",
         "not_interested",
       ],
-      campaign_status: ["draft", "smoke_test", "active", "paused", "done"],
+      campaign_status: [
+        "draft",
+        "smoke_test",
+        "active",
+        "paused",
+        "done",
+        "paused_guardrail",
+      ],
       channel_account_status: ["active", "paused", "warming", "disabled"],
       channel_kind: ["email"],
       channel_provider: ["lemlist"],

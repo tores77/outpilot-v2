@@ -117,12 +117,20 @@ const requireTenantIdFilter = {
         // always compute the same chain from the leading .from().
 
         const tableArg = node.arguments[0];
-        const tableName =
+        const isStringLiteral =
           tableArg &&
           tableArg.type === "Literal" &&
-          typeof tableArg.value === "string"
-            ? tableArg.value
-            : "<unknown>";
+          typeof tableArg.value === "string";
+
+        // Si el primer argumento no es un string literal, el callee
+        // probablemente NO es `supabase.from(...)` sino otra cosa
+        // (p.ej. `Array.from(iterable)`, `Date.from()`, etc). Skip
+        // para no generar falsos positivos. Pierde cobertura sobre
+        // `supabase.from(tableVar)` dinámico, que es un patrón poco
+        // común y detectable en code review.
+        if (!isStringLiteral) return;
+
+        const tableName = tableArg.value;
 
         // Exención: tablas padre sin columna tenant_id. Un cron
         // multi-tenant necesita listarlas sin filtro.

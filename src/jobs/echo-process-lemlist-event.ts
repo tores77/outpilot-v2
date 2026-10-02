@@ -38,6 +38,13 @@ import {
   processLemlistEvent,
   type LemlistEventDeps,
 } from "@/lib/channels/lemlist-event-process";
+import {
+  evaluateGuardrails,
+  parseGuardrailsMode,
+  GUARDRAIL_WINDOW_HOURS,
+} from "@/lib/channels/guardrails";
+import { createLemlistClient } from "@/channels/lemlist/client";
+import { pauseLemlistCampaign } from "@/channels/lemlist/campaign-ops";
 
 // Hard cap por run (pedido Pere: 200). Si hay más, el siguiente
 // run los coge. En steady state con 1 tenant y un flujo normal de
@@ -301,6 +308,175 @@ export const echoProcessLemlistEvent = inngest.createFunction(
       }
     }
 
+    // ===== 4. Guardarraíles por campaña tocada (bloque C) =====
+    //
+    // Set de campaign_external_id únicos de los eventos procesados
+    // en este run. Para cada uno:
+    //   - Si campaigns.status ya está paused_guardrail/paused/done
+    //     → skip (no reanudamos solo).
+    //   - Else: SELECT counts últimas 24h, evaluateGuardrails.
+    //   - Si pause: según GUARDRAILS_ENFORCE actuar.
+    const touchedExtIds = Array.from(
+      new Set(
+        claimed
+          .map((c) => c.campaign_external_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+
+    const mode = parseGuardrailsMode(process.env.GUARDRAILS_ENFORCE);
+    let guardrailAlerts = 0;
+    let guardrailPauses = 0;
+
+    if (touchedExtIds.length > 0) {
+      const lemlistApiKey = process.env.LEMLIST_API_KEY;
+      const lemlist = lemlistApiKey
+        ? createLemlistClient({ apiKey: lemlistApiKey })
+        : null;
+
+      for (const extId of touchedExtIds) {
+        const outcome = await step.run(
+          `guardrails-${extId}`,
+          async () => {
+            // Resolver la campaign del tenant.
+            const { data: campaign, error: cErr } = await supabase
+              .from("campaigns")
+              .select("id, status")
+              .eq("tenant_id", tenantId)
+              .eq("provider_external_id", extId)
+              .maybeSingle();
+            if (cErr) {
+              return {
+                kind: "error" as const,
+                error: `campaign lookup: ${cErr.message}`,
+              };
+            }
+            if (!campaign) {
+              return { kind: "no_campaign" as const };
+            }
+            // No reanuda ni re-evalúa terminales.
+            if (
+              campaign.status === "paused_guardrail" ||
+              campaign.status === "paused" ||
+              campaign.status === "done"
+            ) {
+              return { kind: "skip_terminal" as const, status: campaign.status };
+            }
+
+            // Counts 24h por event_created_at.
+            const windowStart = new Date(
+              Date.now() - GUARDRAIL_WINDOW_HOURS * 60 * 60 * 1000,
+            ).toISOString();
+
+            async function countType(type: string): Promise<number> {
+              const { count, error } = await supabase
+                .from("lemlist_events")
+                .select("*", { count: "exact", head: true })
+                .eq("tenant_id", tenantId)
+                .eq("campaign_external_id", extId)
+                .eq("type", type)
+                .gte("event_created_at", windowStart);
+              if (error) throw new Error(`count-${type}: ${error.message}`);
+              return count ?? 0;
+            }
+
+            const [sent, bounced] = await Promise.all([
+              countType("emailsSent"),
+              countType("emailsBounced"),
+            ]);
+            // Complaints: Lemlist no documenta un type separado. 0
+            // hasta identificar la señal; cuando se identifique,
+            // añadir otra countType aquí.
+            const complaints = 0;
+
+            const result = evaluateGuardrails({
+              sent,
+              bounced,
+              complaints,
+              windowHours: GUARDRAIL_WINDOW_HOURS,
+            });
+
+            if (result.action === "none") {
+              return {
+                kind: "ok" as const,
+                sent,
+                bounced,
+                complaints,
+              };
+            }
+
+            // action = pause. Dos ramas según mode.
+            let actionTaken:
+              | "observe_only"
+              | "pause_api_ok"
+              | "pause_api_failed" = "observe_only";
+            let apiError: string | null = null;
+
+            if (mode === "enforce" && lemlist) {
+              try {
+                await pauseLemlistCampaign(lemlist, extId);
+                actionTaken = "pause_api_ok";
+              } catch (err) {
+                apiError =
+                  err instanceof Error ? err.message : String(err);
+                actionTaken = "pause_api_failed";
+              }
+              if (actionTaken === "pause_api_ok") {
+                const { error: upErr } = await supabase
+                  .from("campaigns")
+                  .update({ status: "paused_guardrail" })
+                  .eq("tenant_id", tenantId)
+                  .eq("id", campaign.id);
+                if (upErr) {
+                  console.error(
+                    `[echo-guardrails] update campaigns.status failed: ${upErr.message}`,
+                  );
+                }
+              }
+            }
+
+            // Alerta siempre (observe o enforce).
+            const { error: alertErr } = await supabase.from("alerts").insert({
+              tenant_id: tenantId,
+              kind: "guardrail_pause",
+              campaign_id: campaign.id,
+              payload: {
+                reason: result.reason,
+                rate: result.rate,
+                threshold: result.threshold,
+                sent,
+                bounced,
+                complaints,
+                window_hours: GUARDRAIL_WINDOW_HOURS,
+                mode,
+                action_taken: actionTaken,
+                api_error: apiError,
+                provider_external_id: extId,
+              },
+            });
+            if (alertErr) {
+              console.error(
+                `[echo-guardrails] alerts insert failed: ${alertErr.message}`,
+              );
+            }
+
+            return {
+              kind: "pause" as const,
+              reason: result.reason,
+              action_taken: actionTaken,
+              sent,
+              bounced,
+            };
+          },
+        );
+
+        if (outcome.kind === "pause") {
+          guardrailAlerts += 1;
+          if (outcome.action_taken === "pause_api_ok") guardrailPauses += 1;
+        }
+      }
+    }
+
     return {
       tenantId,
       swept: sweptCount,
@@ -309,6 +485,8 @@ export const echoProcessLemlistEvent = inngest.createFunction(
       unhandled,
       lead_not_found: leadNotFound,
       errors,
+      guardrail_alerts: guardrailAlerts,
+      guardrail_pauses: guardrailPauses,
     };
   },
 );

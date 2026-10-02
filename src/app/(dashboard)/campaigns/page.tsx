@@ -22,6 +22,9 @@ const STATUS_STYLES: Record<CampaignStatus, string> = {
   smoke_test: "bg-accent-soft text-accent",
   active: "bg-accent-soft text-accent",
   paused: "bg-surface text-foreground",
+  // T025 bloque C: pausa automática por bounce/complaint rate. Rojo
+  // suave para distinguir visualmente de un `paused` manual.
+  paused_guardrail: "bg-rose-100 text-rose-900",
   done: "bg-surface text-foreground",
 };
 
