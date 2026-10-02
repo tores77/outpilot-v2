@@ -910,6 +910,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      campaign_lead_outcome: [
+        "sent",
+        "bounced",
+        "replied",
+        "unsubscribed",
+        "interested",
+        "not_interested",
+      ],
       campaign_status: ["draft", "smoke_test", "active", "paused", "done"],
       channel_account_status: ["active", "paused", "warming", "disabled"],
       channel_kind: ["email"],
