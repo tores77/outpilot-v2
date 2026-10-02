@@ -6,6 +6,7 @@ import { LEX_MAX_PER_TRIGGER, LEX_STALE_CLAIM_MS } from "@/config/lex";
 import { VOLT_MAX_SYNC_PER_TRIGGER } from "@/config/volt";
 import { countPending } from "@/lib/lex/claim";
 import { getVoltCounts } from "@/lib/volt/counts";
+import { getOutcomeCounts, type OutcomeCounts } from "@/lib/channels/outcome-counts";
 import {
   createLemlistCampaignAction,
   personalizeCampaignAction,
@@ -96,6 +97,7 @@ export default async function CampaignsPage({
     string,
     { syncable: number; pending_personalization: number; no_company: number }
   >();
+  const outcomeCounts = new Map<string, OutcomeCounts>();
   await Promise.all([
     ...campaigns.map(async (c) => {
       lexCounts.set(
@@ -111,6 +113,15 @@ export default async function CampaignsPage({
       voltCounts.set(
         c.id,
         await getVoltCounts(supabase, {
+          tenantId,
+          campaignId: c.id,
+        }),
+      );
+    }),
+    ...campaigns.map(async (c) => {
+      outcomeCounts.set(
+        c.id,
+        await getOutcomeCounts(supabase, {
           tenantId,
           campaignId: c.id,
         }),
@@ -211,13 +222,22 @@ export default async function CampaignsPage({
               <th className="px-4 py-3 font-medium">Smoke</th>
               <th className="px-4 py-3 font-medium">Personalización</th>
               <th className="px-4 py-3 font-medium">Sync Lemlist</th>
+              <th className="px-4 py-3 text-right font-medium" title="emailsSent">
+                Enviados
+              </th>
+              <th className="px-4 py-3 text-right font-medium" title="emailsBounced">
+                Rebotes
+              </th>
+              <th className="px-4 py-3 text-right font-medium" title="emailsReplied + interested + not_interested">
+                Respuestas
+              </th>
             </tr>
           </thead>
           <tbody>
             {campaigns.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={11}
                   className="px-4 py-10 text-center text-sm text-muted"
                 >
                   Aún no hay campañas. Crea la primera desde{" "}
@@ -359,6 +379,49 @@ export default async function CampaignsPage({
                       </span>
                     )}
                   </td>
+                  {(() => {
+                    const oc = outcomeCounts.get(c.id) ?? {
+                      sent: 0,
+                      bounced: 0,
+                      replied: 0,
+                      unsubscribed: 0,
+                      interested: 0,
+                      not_interested: 0,
+                      pending: 0,
+                    };
+                    // "Enviados" = al menos un emailsSent → outcome
+                    // >= sent en la escala monotónica. Para evitar
+                    // sumar unsubscribed con sent cuando el lead
+                    // nunca llegó a enviarse (unsubscribed terminal
+                    // puede llegar sobre un lead sent o no), aquí
+                    // "sent" = la banda {sent, bounced, replied,
+                    // interested, not_interested} + unsubscribed
+                    // que haya pasado por sent es incluido en la
+                    // banda alta — pero cuando outcome=unsubscribed
+                    // puro, no sabemos si envió. Compromiso: sumamos
+                    // sent + bounced + replied + interested + not_interested
+                    // como "con algún envío registrado".
+                    const sent =
+                      oc.sent +
+                      oc.bounced +
+                      oc.replied +
+                      oc.interested +
+                      oc.not_interested;
+                    const replies = oc.replied + oc.interested + oc.not_interested;
+                    return (
+                      <>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {sent}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {oc.bounced}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {replies}
+                        </td>
+                      </>
+                    );
+                  })()}
                 </tr>
               );
             })}
